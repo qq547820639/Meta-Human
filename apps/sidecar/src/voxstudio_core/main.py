@@ -32,15 +32,25 @@ from voxstudio_core.config import SidecarConfig
 from voxstudio_core.knowledge.feishu import FeishuClient
 from voxstudio_core.knowledge.conversation import ConversationService
 from voxstudio_core.knowledge.history import ConversationHistoryStore
-from voxstudio_core.knowledge.memory import ConversationMemoryStore
+from voxstudio_core.knowledge.memory import ConversationMemoryStore, MemoryService
 from voxstudio_core.knowledge.indexer import KnowledgeIndexer
 from voxstudio_core.knowledge.retrieval import KnowledgeRetriever
 from voxstudio_core.knowledge.sources import KnowledgeSourceStore
 from voxstudio_core.lifecycle import SidecarLifecycle
+from voxstudio_core.persistence.build_job_repository import BuildJobRepository
+from voxstudio_core.persistence.conversation_repository import (
+    ConversationRepository,
+)
 from voxstudio_core.persistence.database import Database
+from voxstudio_core.persistence.digital_human_repository import (
+    DigitalHumanRepository,
+)
+from voxstudio_core.persistence.memory_entry_repository import (
+    MemoryEntryRepository,
+)
 from voxstudio_core.persistence.readiness_repository import ReadinessRepository
+from voxstudio_core.providers.build_job_service import BuildJobService
 from voxstudio_core.providers.local_config import LocalProviderConfig
-from voxstudio_core.providers.avatar_build import AvatarBuildService
 from voxstudio_core.providers.openai_compatible import OpenAICompatibleClient
 from voxstudio_core.providers.remote_gpu import RemoteGpuClient, RemoteGpuConfig
 from voxstudio_core.readiness.models import CapabilityId
@@ -64,6 +74,8 @@ def build_app(
 ):
     database = Database(database_path)
     repository = ReadinessRepository(database)
+    digital_humans = DigitalHumanRepository(database)
+    build_jobs = BuildJobRepository(database)
     remote_config = _remote_provider_config_from_environment()
     service = ReadinessService(
         repository=repository,
@@ -77,13 +89,22 @@ def build_app(
     )
     local_config = _local_provider_config_from_environment()
     conversation_service = None
-    avatar_build_service = None
+    build_job_service = None
     remote_client = None
     if remote_config is not None:
         remote_client = RemoteGpuClient(remote_config)
-        avatar_build_service = AvatarBuildService(client=remote_client)
+        build_job_service = BuildJobService(
+            repository=build_jobs,
+            digital_humans=digital_humans,
+            client=remote_client,
+        )
     if local_config is not None:
         local_client = OpenAICompatibleClient(local_config)
+        memory_service = MemoryService(
+            repository=MemoryEntryRepository(database),
+            chat_client=local_client,
+            chat_model=local_config.chat_model,
+        )
         conversation_service = ConversationService(
             retriever=KnowledgeRetriever(database),
             chat_client=local_client,
@@ -91,17 +112,24 @@ def build_app(
             tts_client=remote_client,
             history=ConversationHistoryStore(database),
             memory_store=ConversationMemoryStore(database),
+            memory_service=memory_service,
             stt_client=local_client,
             stt_model=local_config.stt_model,
+            conversations=ConversationRepository(database),
         )
+    else:
+        memory_service = None
     return create_app(
         config=config,
         lifecycle=lifecycle,
         conversation_service=conversation_service,
-        avatar_build_service=avatar_build_service,
+        build_job_service=build_job_service,
+        digital_humans=digital_humans,
         avatar_stream_client=remote_client,
         knowledge_sources=KnowledgeSourceStore(database),
         privacy_database=database,
+        startup_resume=build_job_service,
+        memory_service=memory_service,
     )
 
 

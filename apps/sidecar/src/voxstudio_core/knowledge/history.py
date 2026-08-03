@@ -22,19 +22,27 @@ class ConversationHistoryStore:
         self,
         *,
         limit: int = 10,
+        conversation_id: str | None = None,
     ) -> tuple[ConversationMessage, ...]:
         if limit <= 0:
             return ()
+        where = ""
+        params: list[object] = []
+        if conversation_id is not None:
+            where = "WHERE conversation_id = ?"
+            params.append(conversation_id)
+        params.append(limit)
         async with self._database.transaction(immediate=False) as connection:
             async with connection.execute(
-                """
+                f"""
                 SELECT
                     role, content, citations, citation_urls, grounded, created_at
                 FROM conversation_messages
+                {where}
                 ORDER BY id DESC
                 LIMIT ?
                 """,
-                (limit,),
+                params,
             ) as cursor:
                 rows = await cursor.fetchall()
         messages = tuple(
@@ -50,10 +58,20 @@ class ConversationHistoryStore:
         )
         return messages
 
-    async def count(self) -> int:
+    async def count(
+        self,
+        *,
+        conversation_id: str | None = None,
+    ) -> int:
+        where = ""
+        params: list[object] = []
+        if conversation_id is not None:
+            where = "WHERE conversation_id = ?"
+            params.append(conversation_id)
         async with self._database.transaction(immediate=False) as connection:
             async with connection.execute(
-                "SELECT COUNT(*) AS total FROM conversation_messages"
+                f"SELECT COUNT(*) AS total FROM conversation_messages {where}",
+                params,
             ) as cursor:
                 row = await cursor.fetchone()
         return int(row["total"]) if row is not None else 0
@@ -66,6 +84,7 @@ class ConversationHistoryStore:
         citations: tuple[str, ...] = (),
         citation_urls: tuple[str | None, ...] = (),
         grounded: bool = False,
+        conversation_id: str | None = None,
     ) -> None:
         if role not in {"user", "assistant"}:
             raise ValueError("conversation role must be user or assistant")
@@ -80,8 +99,8 @@ class ConversationHistoryStore:
             await connection.execute(
                 """
                 INSERT INTO conversation_messages (
-                    role, content, citations, citation_urls, grounded
-                ) VALUES (?, ?, ?, ?, ?)
+                    role, content, citations, citation_urls, grounded, conversation_id
+                ) VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 (
                     role,
@@ -89,6 +108,7 @@ class ConversationHistoryStore:
                     json.dumps(citation_values, ensure_ascii=False),
                     json.dumps(citation_url_values, ensure_ascii=False),
                     int(grounded),
+                    conversation_id,
                 ),
             )
 
@@ -112,7 +132,14 @@ class ConversationHistoryStore:
             )
             return True
 
-    async def clear(self) -> None:
+    async def clear(self, *, conversation_id: str | None = None) -> None:
+        if conversation_id is not None:
+            async with self._database.transaction() as connection:
+                await connection.execute(
+                    "DELETE FROM conversation_messages WHERE conversation_id = ?",
+                    (conversation_id,),
+                )
+            return
         async with self._database.transaction() as connection:
             await connection.execute("DELETE FROM conversation_messages")
 

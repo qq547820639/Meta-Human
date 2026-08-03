@@ -196,7 +196,7 @@ async def test_every_readiness_route_requires_the_startup_bearer(
 
     assert response.status_code == 401
     assert response.headers["www-authenticate"] == "Bearer"
-    assert response.json()["code"] == "unauthorized"
+    assert response.json()["code"] == "credential_error"
 
 
 @pytest.mark.asyncio

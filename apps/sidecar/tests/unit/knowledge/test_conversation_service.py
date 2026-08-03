@@ -9,12 +9,16 @@ import pytest_asyncio
 
 from voxstudio_core.knowledge.conversation import (
     ConversationService,
+    ConversationUnavailableError,
     TranscriptionUnavailableError,
 )
 from voxstudio_core.knowledge.history import ConversationHistoryStore
 from voxstudio_core.knowledge.memory import ConversationMemoryStore
 from voxstudio_core.knowledge.indexer import KnowledgeIndexer
 from voxstudio_core.knowledge.retrieval import KnowledgeRetriever
+from voxstudio_core.persistence.conversation_repository import (
+    ConversationRepository,
+)
 from voxstudio_core.persistence.database import Database
 from voxstudio_core.providers.local_config import LocalProviderConfig
 from voxstudio_core.providers.openai_compatible import OpenAICompatibleClient
@@ -373,3 +377,111 @@ async def test_regenerate_replaces_last_assistant_in_history(
         ("user", "问题"),
         ("assistant", "新回答"),
     ]
+
+
+# --- TASK 7: conversation management -----------------------------------------
+
+
+def conversation_service_with_repository(
+    database: Database,
+) -> ConversationService:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": "回答"}}]},
+        )
+
+    return ConversationService(
+        retriever=KnowledgeRetriever(database),
+        chat_client=chat_client(httpx.MockTransport(handler)),
+        chat_model="local-chat",
+        conversations=ConversationRepository(database),
+        history=ConversationHistoryStore(database),
+    )
+
+
+@pytest.mark.asyncio
+async def test_conversation_management_requires_role_configuration(
+    database: Database,
+) -> None:
+    service = ConversationService(
+        retriever=KnowledgeRetriever(database),
+        chat_client=chat_client(httpx.MockTransport(lambda _: httpx.Response(200))),
+        chat_model="local-chat",
+    )
+    with pytest.raises(ConversationUnavailableError):
+        await service.create_conversation()
+
+
+@pytest.mark.asyncio
+async def test_create_and_list_conversations(database: Database) -> None:
+    service = conversation_service_with_repository(database)
+
+    first = await service.create_conversation(title="会话一")
+    second = await service.create_conversation(avatar_id="avatar-1")
+
+    conversations = await service.list_conversations()
+    assert [c.id for c in conversations] == [second.id, first.id]
+    assert first.title == "会话一"
+    assert second.avatar_id == "avatar-1"
+    assert await service.count_conversations() == 2
+
+
+@pytest.mark.asyncio
+async def test_get_rename_and_delete_conversation(database: Database) -> None:
+    service = conversation_service_with_repository(database)
+    conversation = await service.create_conversation()
+
+    fetched = await service.get_conversation(conversation.id)
+    assert fetched.id == conversation.id
+
+    renamed = await service.rename_conversation(conversation.id, title="新标题")
+    assert renamed.title == "新标题"
+
+    await service.delete_conversation(conversation.id)
+    assert [c.id for c in await service.list_conversations()] == []
+    assert (await service.get_conversation(conversation.id)).deleted is True
+
+
+@pytest.mark.asyncio
+async def test_archive_and_clear_conversation(database: Database) -> None:
+    service = conversation_service_with_repository(database)
+    conversation = await service.create_conversation()
+    await service.reply(
+        query="你好",
+        conversation_id=conversation.id,
+    )
+
+    archived = await service.archive_conversation(conversation.id, archived=True)
+    assert archived.archived is True
+
+    await service.clear_conversation(conversation.id)
+    reloaded = await service.get_conversation(conversation.id)
+    assert reloaded.last_message_at is None
+    assert await service.recent_history() == ()
+
+
+@pytest.mark.asyncio
+async def test_export_conversation_includes_messages(database: Database) -> None:
+    service = conversation_service_with_repository(database)
+    conversation = await service.create_conversation(title="导出")
+    await service.reply(
+        query="问题",
+        conversation_id=conversation.id,
+    )
+
+    exported = await service.export_conversation(conversation.id)
+    assert exported["conversation"].title == "导出"
+    assert [m["role"] for m in exported["messages"]] == ["user", "assistant"]
+
+
+@pytest.mark.asyncio
+async def test_search_conversations(database: Database) -> None:
+    service = conversation_service_with_repository(database)
+    conversation = await service.create_conversation(title="飞行器指南")
+
+    hits = await service.search_conversations(query="飞行器")
+    assert [c.id for c in hits] == [conversation.id]
+
+    misses = await service.search_conversations(query="不存在")
+    assert misses == ()

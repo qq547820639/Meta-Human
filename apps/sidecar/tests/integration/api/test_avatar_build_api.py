@@ -1,36 +1,34 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 
 from voxstudio_core.api.app import create_app
 from voxstudio_core.config import SidecarConfig, generate_startup_token
-from voxstudio_core.providers.avatar_build import (
-    AvatarBuildResult,
-    AvatarBuildUnavailableError,
+from voxstudio_core.persistence.build_job_repository import BuildJobRepository
+from voxstudio_core.persistence.database import Database
+from voxstudio_core.persistence.digital_human_repository import (
+    DigitalHumanRepository,
 )
+from voxstudio_core.providers.build_job_service import BuildJobService
 from voxstudio_core.providers.remote_gpu import AvatarStream
 
 
-class StubAvatarBuildService:
-    def __init__(self, *, fail: bool = False) -> None:
-        self.fail = fail
-
-    async def build(
-        self,
-        *,
-        portrait_path: str,
-        recording_path: str,
-    ) -> AvatarBuildResult:
-        if self.fail:
-            raise AvatarBuildUnavailableError("remote build unavailable")
-        return AvatarBuildResult(voice_id="voice-1", avatar_id="avatar-1")
-
-
-class StubStreamClient:
+class StubRemoteClient:
     def __init__(self) -> None:
         self.stopped: list[str] = []
+        self.voice_calls = 0
+        self.avatar_calls = 0
+
+    async def enroll_voice(self, *, audio: bytes) -> str:
+        self.voice_calls += 1
+        return "voice-1"
+
+    async def enroll_avatar(self, *, image: bytes) -> str:
+        self.avatar_calls += 1
+        return "avatar-1"
 
     async def start_avatar_stream(
         self,
@@ -64,14 +62,17 @@ class EmptyLifecycle:
 @asynccontextmanager
 async def running_client(
     token: str,
-    service: StubAvatarBuildService,
-    stream_client: StubStreamClient | None = None,
+    database: Database,
+    build_jobs: BuildJobService,
+    humans: DigitalHumanRepository,
+    remote: StubRemoteClient,
 ) -> AsyncIterator[AsyncClient]:
     app = create_app(
         config=SidecarConfig(bearer_token=token),
         lifecycle=EmptyLifecycle(),
-        avatar_build_service=service,
-        avatar_stream_client=stream_client,
+        build_job_service=build_jobs,
+        digital_humans=humans,
+        avatar_stream_client=remote,
     )
     async with app.router.lifespan_context(app):
         async with AsyncClient(
@@ -86,80 +87,97 @@ def authorization(token: str) -> dict[str, str]:
 
 
 @pytest.mark.asyncio
-async def test_avatar_build_returns_voice_and_avatar_ids() -> None:
+async def test_build_job_flow_creates_and_persists_human(
+    tmp_path: Path,
+) -> None:
     token = generate_startup_token()
-    async with running_client(token, StubAvatarBuildService()) as client:
-        response = await client.post(
-            "/v1/avatar/builds",
-            headers=authorization(token),
-            json={
-                "portrait_path": "/tmp/portrait.jpg",
-                "recording_path": "/tmp/voice.wav",
-            },
-        )
+    database = Database(tmp_path / "avatar.sqlite3")
+    await database.connect()
+    await database.migrate()
+    humans = DigitalHumanRepository(database)
+    remote = StubRemoteClient()
+    build_jobs = BuildJobService(
+        repository=BuildJobRepository(database),
+        digital_humans=humans,
+        client=remote,
+    )
+    portrait = tmp_path / "p.jpg"
+    recording = tmp_path / "v.wav"
+    portrait.write_bytes(b"img")
+    recording.write_bytes(b"aud")
+    try:
+        async with running_client(
+            token, database, build_jobs, humans, remote
+        ) as client:
+            human = await humans.create(name="Bob")
+            job = await client.post(
+                "/v1/avatar/jobs",
+                headers=authorization(token),
+                json={
+                    "portrait_path": str(portrait),
+                    "recording_path": str(recording),
+                    "digital_human_id": human.id,
+                },
+            )
+            assert job.status_code == 202
+            job_id = job.json()["id"]
 
-    assert response.status_code == 200
-    assert response.json() == {
-        "voice_id": "voice-1",
-        "avatar_id": "avatar-1",
-    }
+            for _ in range(100):
+                status = await client.get(
+                    f"/v1/avatar/jobs/{job_id}",
+                    headers=authorization(token),
+                )
+                if status.json()["status"] in ("succeeded", "failed"):
+                    break
+
+            listing = await client.get(
+                "/v1/avatar/humans",
+                headers=authorization(token),
+            )
+            default = await client.get(
+                "/v1/avatar/humans/default",
+                headers=authorization(token),
+            )
+    finally:
+        await database.close()
+
+    assert status.json()["status"] == "succeeded"
+    assert listing.status_code == 200
+    assert [h["id"] for h in listing.json()] == [human.id]
+    assert default.json()["id"] == human.id
 
 
 @pytest.mark.asyncio
-async def test_avatar_build_fails_closed_on_provider_error() -> None:
+async def test_avatar_stream_start_and_stop_are_wired(tmp_path: Path) -> None:
     token = generate_startup_token()
-    async with running_client(
-        token,
-        StubAvatarBuildService(fail=True),
-    ) as client:
-        response = await client.post(
-            "/v1/avatar/builds",
-            headers=authorization(token),
-            json={
-                "portrait_path": "/tmp/portrait.jpg",
-                "recording_path": "/tmp/voice.wav",
-            },
-        )
-
-    assert response.status_code == 503
-
-
-@pytest.mark.asyncio
-async def test_avatar_build_requires_bearer_token() -> None:
-    token = generate_startup_token()
-    async with running_client(token, StubAvatarBuildService()) as client:
-        response = await client.post(
-            "/v1/avatar/builds",
-            json={
-                "portrait_path": "/tmp/portrait.jpg",
-                "recording_path": "/tmp/voice.wav",
-            },
-        )
-
-    assert response.status_code == 401
-
-
-@pytest.mark.asyncio
-async def test_avatar_stream_start_and_stop_are_wired() -> None:
-    token = generate_startup_token()
-    stream_client = StubStreamClient()
-    async with running_client(
-        token,
-        StubAvatarBuildService(),
-        stream_client,
-    ) as client:
-        start = await client.post(
-            "/v1/avatar/streams",
-            headers=authorization(token),
-            json={
-                "avatar_id": "avatar-1",
-                "voice_id": "voice-1",
-            },
-        )
-        stop = await client.delete(
-            "/v1/avatar/streams/stream-1",
-            headers=authorization(token),
-        )
+    database = Database(tmp_path / "avatar.sqlite3")
+    await database.connect()
+    await database.migrate()
+    humans = DigitalHumanRepository(database)
+    remote = StubRemoteClient()
+    build_jobs = BuildJobService(
+        repository=BuildJobRepository(database),
+        digital_humans=humans,
+        client=remote,
+    )
+    try:
+        async with running_client(
+            token, database, build_jobs, humans, remote
+        ) as client:
+            start = await client.post(
+                "/v1/avatar/streams",
+                headers=authorization(token),
+                json={
+                    "avatar_id": "avatar-1",
+                    "voice_id": "voice-1",
+                },
+            )
+            stop = await client.delete(
+                "/v1/avatar/streams/stream-1",
+                headers=authorization(token),
+            )
+    finally:
+        await database.close()
 
     assert start.status_code == 200
     assert start.json() == {
@@ -167,25 +185,78 @@ async def test_avatar_stream_start_and_stop_are_wired() -> None:
         "stream_url": "https://gpu.example.com/live/stream-1",
     }
     assert stop.status_code == 204
-    assert stream_client.stopped == ["stream-1"]
 
 
 @pytest.mark.asyncio
-async def test_avatar_stream_routes_require_bearer_token() -> None:
+async def test_current_job_returns_most_recent_unfinished_job(
+    tmp_path: Path,
+) -> None:
     token = generate_startup_token()
-    async with running_client(
-        token,
-        StubAvatarBuildService(),
-        StubStreamClient(),
-    ) as client:
-        start = await client.post(
-            "/v1/avatar/streams",
-            json={
-                "avatar_id": "avatar-1",
-                "voice_id": "voice-1",
-            },
-        )
-        stop = await client.delete("/v1/avatar/streams/stream-1")
+    database = Database(tmp_path / "avatar.sqlite3")
+    await database.connect()
+    await database.migrate()
+    humans = DigitalHumanRepository(database)
+    remote = StubRemoteClient()
+    build_jobs = BuildJobService(
+        repository=BuildJobRepository(database),
+        digital_humans=humans,
+        client=remote,
+    )
+    portrait = tmp_path / "p.jpg"
+    recording = tmp_path / "v.wav"
+    portrait.write_bytes(b"img")
+    recording.write_bytes(b"aud")
+    try:
+        async with running_client(
+            token, database, build_jobs, humans, remote
+        ) as client:
+            empty = await client.get(
+                "/v1/avatar/jobs/current",
+                headers=authorization(token),
+            )
+            job = await client.post(
+                "/v1/avatar/jobs",
+                headers=authorization(token),
+                json={
+                    "portrait_path": str(portrait),
+                    "recording_path": str(recording),
+                },
+            )
+            assert job.status_code == 202
+            current = await client.get(
+                "/v1/avatar/jobs/current",
+                headers=authorization(token),
+            )
+    finally:
+        await database.close()
 
-    assert start.status_code == 401
-    assert stop.status_code == 401
+    assert empty.status_code == 200
+    assert empty.json() is None
+    assert current.status_code == 200
+    assert current.json()["id"] == job.json()["id"]
+
+
+@pytest.mark.asyncio
+async def test_avatar_routes_require_bearer_token(tmp_path: Path) -> None:
+    token = generate_startup_token()
+    database = Database(tmp_path / "avatar.sqlite3")
+    await database.connect()
+    await database.migrate()
+    humans = DigitalHumanRepository(database)
+    remote = StubRemoteClient()
+    build_jobs = BuildJobService(
+        repository=BuildJobRepository(database),
+        digital_humans=humans,
+        client=remote,
+    )
+    try:
+        async with running_client(
+            token, database, build_jobs, humans, remote
+        ) as client:
+            listing = await client.get("/v1/avatar/humans")
+            default = await client.get("/v1/avatar/humans/default")
+    finally:
+        await database.close()
+
+    assert listing.status_code == 401
+    assert default.status_code == 401

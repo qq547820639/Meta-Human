@@ -9,9 +9,10 @@ import {
 import { clearAllLocalData } from "../privacy/privacyClient";
 import { deleteCapturedTempMedia } from "../creation/captureClient";
 import {
-  clearConversationMemory,
-  getConversationMemory,
-  updateConversationMemory,
+  clearMemoryEntries,
+  deleteMemoryEntry,
+  listMemoryEntries,
+  updateMemoryEntry,
 } from "../memory/memoryClient";
 import {
   checkLocalProvider,
@@ -51,9 +52,20 @@ vi.mock("../creation/captureClient", () => ({
 }));
 
 vi.mock("../memory/memoryClient", () => ({
-  getConversationMemory: vi.fn(),
-  updateConversationMemory: vi.fn(),
-  clearConversationMemory: vi.fn(),
+  MEMORY_TYPES: [
+    "user_fact",
+    "preference",
+    "goal",
+    "ongoing",
+    "relationship",
+    "habit",
+    "explicit_request",
+  ],
+  memoryTypeLabel: (type: string) => type,
+  listMemoryEntries: vi.fn(),
+  updateMemoryEntry: vi.fn(),
+  deleteMemoryEntry: vi.fn(),
+  clearMemoryEntries: vi.fn(),
 }));
 
 afterEach(() => {
@@ -65,11 +77,30 @@ beforeEach(() => {
   vi.mocked(listKnowledgeSources).mockResolvedValue([]);
   vi.mocked(clearAllLocalData).mockResolvedValue(undefined);
   vi.mocked(deleteCapturedTempMedia).mockResolvedValue(0);
-  vi.mocked(getConversationMemory).mockResolvedValue(null);
-  vi.mocked(updateConversationMemory).mockResolvedValue(undefined);
-  vi.mocked(clearConversationMemory).mockResolvedValue(undefined);
+  vi.mocked(listMemoryEntries).mockResolvedValue({ entries: [], total: 0 });
+  vi.mocked(updateMemoryEntry).mockResolvedValue(fixtureEntry());
+  vi.mocked(deleteMemoryEntry).mockResolvedValue(fixtureEntry());
+  vi.mocked(clearMemoryEntries).mockResolvedValue(undefined);
   vi.mocked(resetAllSettings).mockResolvedValue(undefined);
 });
+
+function fixtureEntry(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    id: "memory-1",
+    type: "preference",
+    content: "旧摘要",
+    source_message_id: null,
+    confidence: 0.8,
+    created_at: "2026-08-04T00:00:00Z",
+    updated_at: "2026-08-04T00:00:00Z",
+    last_used_at: null,
+    confirmed_by_user: true,
+    sensitive: false,
+    expires_at: null,
+    conflict_group: null,
+    ...overrides,
+  };
+}
 
 describe("Settings", () => {
   it("loads and saves local, remote, and Feishu settings", async () => {
@@ -405,7 +436,7 @@ describe("Settings", () => {
     expect(deleteCapturedTempMedia).toHaveBeenCalledTimes(1);
   });
 
-  it("reads, edits, and clears long-term memory", async () => {
+  it("reads, edits, confirms, and clears structured long-term memory", async () => {
     vi.mocked(loadAppSettings).mockResolvedValue({
       settings: {},
       remoteApiKeySet: false,
@@ -413,24 +444,54 @@ describe("Settings", () => {
       feishuAccessTokenSet: false,
       feishuRefreshTokenSet: false,
     });
-    vi.mocked(getConversationMemory).mockResolvedValue({
-      summary: "旧摘要",
-      createdAt: "2026-08-03T00:00:00Z",
+    const entry = fixtureEntry({ content: "旧摘要", confirmed_by_user: false });
+    vi.mocked(listMemoryEntries).mockResolvedValue({
+      entries: [entry],
+      total: 1,
     });
 
     render(<Settings />);
 
     await waitFor(() =>
-      expect(screen.getByLabelText("记忆摘要")).toHaveValue("旧摘要"),
-    );
-    fireEvent.change(screen.getByLabelText("记忆摘要"), {
-      target: { value: "新摘要" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "保存记忆" }));
-    await waitFor(() =>
-      expect(updateConversationMemory).toHaveBeenCalledWith("新摘要"),
+      expect(screen.getByText("旧摘要")).toBeInTheDocument(),
     );
 
+    // Edit the entry content.
+    fireEvent.click(screen.getByRole("button", { name: "编辑" }));
+    await waitFor(() =>
+      expect(screen.getByLabelText("内容")).toBeInTheDocument(),
+    );
+    fireEvent.change(screen.getByLabelText("内容"), {
+      target: { value: "新摘要" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(() =>
+      expect(updateMemoryEntry).toHaveBeenCalledWith("memory-1", {
+        content: "新摘要",
+      }),
+    );
+
+    // Confirm the entry.
+    fireEvent.click(screen.getByRole("button", { name: "确认" }));
+    await waitFor(() =>
+      expect(updateMemoryEntry).toHaveBeenCalledWith("memory-1", {
+        confirmed: true,
+      }),
+    );
+
+    // Delete the entry after confirmation.
+    fireEvent.click(screen.getByRole("button", { name: "删除" }));
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "确认删除？" }),
+      ).toBeInTheDocument(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "确认删除？" }));
+    await waitFor(() =>
+      expect(deleteMemoryEntry).toHaveBeenCalledWith("memory-1"),
+    );
+
+    // Clear all memory.
     fireEvent.click(screen.getByRole("button", { name: "清空记忆" }));
     await waitFor(() =>
       expect(
@@ -438,12 +499,7 @@ describe("Settings", () => {
       ).toBeInTheDocument(),
     );
     fireEvent.click(screen.getByRole("button", { name: "确认清空记忆？" }));
-    await waitFor(() =>
-      expect(clearConversationMemory).toHaveBeenCalledTimes(1),
-    );
-    await waitFor(() =>
-      expect(screen.getByLabelText("记忆摘要")).toHaveValue(""),
-    );
+    await waitFor(() => expect(clearMemoryEntries).toHaveBeenCalledTimes(1));
   });
 
   it("resets all settings after confirmation", async () => {

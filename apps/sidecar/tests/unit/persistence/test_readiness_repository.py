@@ -52,7 +52,7 @@ async def test_migrations_are_versioned_and_idempotent(tmp_path: Path) -> None:
         await database.migrate()
 
         assert await database.applied_migration_versions() == (
-            1, 2, 3, 4, 5, 6, 7,
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
         )
     finally:
         await database.close()
@@ -65,7 +65,7 @@ async def test_migrations_are_versioned_and_idempotent(tmp_path: Path) -> None:
         ) as cursor:
             table_names = {row[0] for row in await cursor.fetchall()}
 
-    assert user_version == 7
+    assert user_version == 11
     assert {
         "schema_migrations",
         "readiness_runs",
@@ -75,6 +75,8 @@ async def test_migrations_are_versioned_and_idempotent(tmp_path: Path) -> None:
         "knowledge_chunks",
         "conversation_messages",
         "conversation_memory",
+        "conversations",
+        "memory_entries",
     }.issubset(table_names)
 
 

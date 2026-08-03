@@ -1,5 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 
+import { apiRequest } from "../../api/client";
+
 interface SidecarConnection {
   readonly baseUrl: string;
   readonly bearerToken: string;
@@ -143,4 +145,203 @@ export async function clearConversationHistory(): Promise<void> {
   if (!response.ok) {
     throw new Error("无法清空对话历史。");
   }
+}
+
+// ---------------------------------------------------------------------------
+// Streaming replies (SSE via fetch + ReadableStream)
+// ---------------------------------------------------------------------------
+
+export type StreamStage = "understanding" | "retrieving";
+
+export interface Citation {
+  readonly id: string;
+  readonly title: string;
+  readonly type: string;
+  readonly snippet?: string | null;
+  readonly url?: string | null;
+}
+
+export interface ConversationStreamEvents {
+  readonly onStage?: (stage: StreamStage) => void;
+  readonly onFoundSources?: (count: number) => void;
+  readonly onToken?: (text: string) => void;
+  readonly onCitations?: (citations: Citation[], grounded: boolean) => void;
+  readonly onDone?: (text: string) => void;
+  readonly onError?: (message: string, retryable: boolean) => void;
+}
+
+export interface StreamConversationOptions {
+  readonly query: string;
+  readonly conversationId?: string | null;
+  readonly regenerate?: boolean;
+  readonly signal?: AbortSignal;
+  readonly events?: ConversationStreamEvents;
+}
+
+/**
+ * Consumes the NDJSON SSE stream for a reply. Events are dispatched through
+ * `options.events` so the UI can update per phase. Resolves when the stream
+ * ends; errors are delivered through `onError` rather than thrown.
+ */
+export async function streamConversationReply(
+  options: StreamConversationOptions,
+): Promise<void> {
+  const connection = await invoke<SidecarConnection>("get_sidecar_connection");
+  const response = await fetch(
+    `${connection.baseUrl}/v1/conversation/replies/stream`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${connection.bearerToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        query: options.query,
+        ...(options.conversationId
+          ? { conversation_id: options.conversationId }
+          : {}),
+        ...(options.regenerate ? { regenerate: true } : {}),
+      }),
+      credentials: "omit",
+      cache: "no-store",
+      signal: options.signal,
+    },
+  );
+
+  if (!response.ok || !response.body) {
+    options.events?.onError?.("对话服务暂时无法回复。", true);
+    return;
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      for (const line of lines) {
+        handleStreamLine(line, options.events);
+      }
+    }
+    if (buffer.trim()) {
+      handleStreamLine(buffer, options.events);
+    }
+  } catch (caught) {
+    if (isAbortError(caught)) {
+      options.events?.onError?.("已停止生成。", false);
+    } else {
+      options.events?.onError?.("对话服务暂时无法回复。", true);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+function handleStreamLine(
+  line: string,
+  events?: ConversationStreamEvents,
+): void {
+  const trimmed = line.trim();
+  if (!trimmed) {
+    return;
+  }
+  let payload = trimmed;
+  if (payload.startsWith("data:")) {
+    payload = payload.slice("data:".length).trim();
+  }
+  if (!payload) {
+    return;
+  }
+
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(payload) as Record<string, unknown>;
+  } catch {
+    return;
+  }
+
+  switch (parsed.type) {
+    case "stage": {
+      const stage = parsed.stage as StreamStage;
+      if (stage === "understanding" || stage === "retrieving") {
+        events?.onStage?.(stage);
+      } else if (stage === "found_sources") {
+        events?.onFoundSources?.(
+          typeof parsed.count === "number" ? parsed.count : 0,
+        );
+      }
+      break;
+    }
+    case "token": {
+      if (typeof parsed.text === "string") {
+        events?.onToken?.(parsed.text);
+      }
+      break;
+    }
+    case "citations": {
+      const raw = parsed.citations;
+      const citations = Array.isArray(raw)
+        ? raw.map(normalizeCitation)
+        : [];
+      events?.onCitations?.(citations, parsed.grounded === true);
+      break;
+    }
+    case "done": {
+      if (typeof parsed.text === "string") {
+        events?.onDone?.(parsed.text);
+      }
+      break;
+    }
+    case "error": {
+      const message =
+        typeof parsed.message === "string"
+          ? parsed.message
+          : "对话服务暂时无法回复。";
+      events?.onError?.(message, parsed.retryable === true);
+      break;
+    }
+  }
+}
+
+function normalizeCitation(raw: unknown): Citation {
+  if (typeof raw === "string") {
+    return { id: raw, title: raw, type: "source" };
+  }
+  const obj = (raw ?? {}) as Partial<Citation>;
+  const id =
+    typeof obj.id === "string"
+      ? obj.id
+      : typeof obj.title === "string"
+        ? obj.title
+        : "";
+  return {
+    id: id || "source",
+    title: typeof obj.title === "string" ? obj.title : id || "来源",
+    type: typeof obj.type === "string" ? obj.type : "source",
+    snippet: typeof obj.snippet === "string" ? obj.snippet : null,
+    url: typeof obj.url === "string" ? obj.url : null,
+  };
+}
+
+function isAbortError(caught: unknown): boolean {
+  return (
+    typeof caught === "object" &&
+    caught !== null &&
+    "name" in caught &&
+    caught.name === "AbortError"
+  );
+}
+
+/** Asks the sidecar to stop the current generation. */
+export async function stopGenerating(): Promise<void> {
+  await apiRequest({
+    method: "POST",
+    path: "/v1/conversation/replies/stop",
+  });
 }

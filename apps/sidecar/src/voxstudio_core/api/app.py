@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Protocol
+from typing import Any, Protocol
 
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
@@ -12,6 +12,7 @@ from starlette.exceptions import HTTPException
 from starlette.middleware.cors import CORSMiddleware
 
 from voxstudio_core.api.routes.conversation import create_conversation_router
+from voxstudio_core.api.routes.memory import create_memory_router
 from voxstudio_core.api.routes.feishu import (
     FeishuOAuthFactory,
     create_feishu_router,
@@ -27,15 +28,21 @@ from voxstudio_core.api.routes.readiness import (
 )
 from voxstudio_core.config import SidecarConfig
 from voxstudio_core.errors import (
-    ErrorEnvelope,
+    ErrorCode,
+    error_envelope,
     new_request_id,
     unexpected_error_envelope,
 )
 from voxstudio_core.knowledge.conversation import ConversationService
+from voxstudio_core.knowledge.memory import MemoryService
 from voxstudio_core.knowledge.sources import KnowledgeSourceStore
 from voxstudio_core.lifecycle import LifecycleNotAcceptingError
 from voxstudio_core.security import BearerTokenGuard
-from voxstudio_core.providers.avatar_build import AvatarBuildService
+from voxstudio_core.persistence.build_job_repository import BuildJobRepository
+from voxstudio_core.persistence.digital_human_repository import (
+    DigitalHumanRepository,
+)
+from voxstudio_core.providers.build_job_service import BuildJobService
 from voxstudio_core.providers.remote_gpu import RemoteGpuClient
 from voxstudio_core.persistence.database import Database
 
@@ -55,21 +62,30 @@ class AppLifecyclePort(ReadinessLifecyclePort, Protocol):
     async def shutdown(self) -> None: ...
 
 
+class StartupResumePort(Protocol):
+    async def resume(self) -> None: ...
+
+
 def create_app(
     *,
     config: SidecarConfig,
     lifecycle: AppLifecyclePort,
     conversation_service: ConversationService | None = None,
-    avatar_build_service: AvatarBuildService | None = None,
+    build_job_service: BuildJobService | None = None,
+    digital_humans: DigitalHumanRepository | None = None,
     avatar_stream_client: RemoteGpuClient | None = None,
     feishu_oauth_factory: FeishuOAuthFactory | None = None,
     knowledge_sources: KnowledgeSourceStore | None = None,
     privacy_database: Database | None = None,
+    startup_resume: StartupResumePort | None = None,
+    memory_service: MemoryService | None = None,
 ) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.lifecycle = lifecycle
         await lifecycle.startup()
+        if startup_resume is not None:
+            await startup_resume.resume()
         try:
             yield
         finally:
@@ -129,11 +145,19 @@ def create_app(
                 service=conversation_service,
             )
         )
-    if avatar_build_service is not None:
+    if memory_service is not None:
+        app.include_router(
+            create_memory_router(
+                guard=guard,
+                memory_service=memory_service,
+            )
+        )
+    if build_job_service is not None and digital_humans is not None:
         app.include_router(
             create_avatar_router(
                 guard=guard,
-                service=avatar_build_service,
+                build_jobs=build_job_service,
+                digital_humans=digital_humans,
                 stream_client=avatar_stream_client,
             )
         )
@@ -240,12 +264,20 @@ def _error_response(
     message: str,
     retryable: bool,
     headers: dict[str, str] | None = None,
+    technical_message: str | None = None,
+    details: dict[str, Any] | None = None,
+    provider: str | None = None,
+    provider_status: str | None = None,
 ) -> JSONResponse:
-    envelope = ErrorEnvelope(
+    envelope = error_envelope(
         code=code,
         message=message,
         retryable=retryable,
         request_id=_request_id(request),
+        technical_message=technical_message,
+        details=details,
+        provider=provider,
+        provider_status=provider_status,
     )
     return _envelope_response(
         envelope,
@@ -276,9 +308,17 @@ def _request_id(request: Request) -> str:
 
 def _http_error_contract(status_code: int) -> tuple[str, str]:
     if status_code == status.HTTP_401_UNAUTHORIZED:
-        return "unauthorized", "Authentication is required."
+        return ErrorCode.CREDENTIAL_ERROR, "Authentication is required."
+    if status_code == status.HTTP_403_FORBIDDEN:
+        return ErrorCode.PERMISSION_ERROR, "You do not have permission to do this."
     if status_code == status.HTTP_404_NOT_FOUND:
-        return "not_found", "The requested resource was not found."
+        return ErrorCode.RESOURCE_NOT_FOUND, "The requested resource was not found."
     if status_code == status.HTTP_405_METHOD_NOT_ALLOWED:
         return "method_not_allowed", "The request method is not allowed."
-    return "request_error", "The request could not be completed."
+    if status_code == status.HTTP_409_CONFLICT:
+        return ErrorCode.TASK_STATE_CONFLICT, "The current state does not allow this operation."
+    if status_code == status.HTTP_429_TOO_MANY_REQUESTS:
+        return ErrorCode.PROVIDER_RATE_LIMITED, "Too many requests, please retry later."
+    if status_code == status.HTTP_503_SERVICE_UNAVAILABLE:
+        return ErrorCode.PROVIDER_BUSY, "The service is busy, please retry later."
+    return ErrorCode.INVALID_ARGUMENT, "The request could not be completed."

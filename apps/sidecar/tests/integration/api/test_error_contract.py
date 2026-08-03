@@ -65,12 +65,13 @@ async def test_unexpected_errors_use_safe_unique_request_scoped_envelopes(
         )
 
     assert first.status_code == 500
-    assert first.json() == {
-        "code": "internal_error",
-        "message": "An unexpected error occurred.",
-        "retryable": False,
-        "request_id": first.headers["x-request-id"],
-    }
+    body = first.json()
+    assert body["code"] == "internal_error"
+    assert body["message"] == "An unexpected error occurred."
+    assert body["retryable"] is False
+    assert body["request_id"] == first.headers["x-request-id"]
+    assert body["recommended_action"] is not None
+    assert body["timestamp"] is not None
     assert second.json()["request_id"] != first.json()["request_id"]
     assert token not in first.text
     assert token not in caplog.text
@@ -88,12 +89,12 @@ async def test_authentication_errors_use_the_safe_envelope_and_challenge() -> No
 
     assert response.status_code == 401
     assert response.headers["www-authenticate"] == "Bearer"
-    assert response.json() == {
-        "code": "unauthorized",
-        "message": "Authentication is required.",
-        "retryable": False,
-        "request_id": response.headers["x-request-id"],
-    }
+    body = response.json()
+    assert body["code"] == "credential_error"
+    assert body["message"] == "Authentication is required."
+    assert body["retryable"] is False
+    assert body["request_id"] == response.headers["x-request-id"]
+    assert body["recommended_action"] is not None
 
 
 @pytest.mark.asyncio
@@ -104,9 +105,9 @@ async def test_framework_generated_errors_use_the_safe_envelope() -> None:
         response = await client.get("/route-that-does-not-exist")
 
     assert response.status_code == 404
-    assert response.json() == {
-        "code": "not_found",
-        "message": "The requested resource was not found.",
-        "retryable": False,
-        "request_id": response.headers["x-request-id"],
-    }
+    body = response.json()
+    assert body["code"] == "resource_not_found"
+    assert body["message"] == "The requested resource was not found."
+    assert body["retryable"] is False
+    assert body["request_id"] == response.headers["x-request-id"]
+    assert body["recommended_action"] is not None

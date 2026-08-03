@@ -1,9 +1,12 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
+import ConversationStream from "./features/conversation/ConversationStream";
 import CreationFlow from "./features/creation/CreationFlow";
 import ReadinessGate from "./features/readiness/ReadinessGate";
 import Settings from "./features/settings/Settings";
 import { useReadiness } from "./features/readiness/useReadiness";
+import { isHumanReady } from "./features/restore/restoreClient";
+import { useRestoreState } from "./features/restore/useRestoreState";
 
 export default function App() {
   const {
@@ -13,9 +16,18 @@ export default function App() {
     recommendedAction,
     resume,
   } = useReadiness();
+  const restore = useRestoreState();
   const [creationRequested, setCreationRequested] = useState(false);
   const [conversationStarted, setConversationStarted] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [restored, setRestored] = useState(false);
+  const canRestore = isHumanReady(restore.defaultHuman) && !restore.isLoading;
+
+  useEffect(() => {
+    if (canRestore && !restored) {
+      setRestored(true);
+    }
+  }, [canRestore, restored]);
   const needsUserHelp =
     snapshot !== null &&
     !snapshot.canCreate &&
@@ -38,21 +50,27 @@ export default function App() {
       : error
         ? "请稍后重新确认准备状态。"
         : null);
-  const heading = creationRequested
-    ? conversationStarted
-      ? "与你的数字人对话"
-      : "塑造你的数字人"
-    : "正在准备工作室";
-  const lead = creationRequested
-    ? conversationStarted
-      ? "你的数字人已经准备好，继续聊下去吧。"
-      : "用一张照片和一段声音，准备第一次自然的回应。"
-    : "我们先安静地确认对话、声音与知识，让第一次见面真正自然。";
-  const assurance = creationRequested
-    ? conversationStarted
-      ? "对话与记忆只保存在这台电脑上。"
-      : "你的素材只用于创建这个数字人。"
-    : "准备过程由应用管理，技术信息默认收起。";
+  const heading = restored
+    ? "与你的数字人对话"
+    : creationRequested
+      ? conversationStarted
+        ? "与你的数字人对话"
+        : "塑造你的数字人"
+      : "正在准备工作室";
+  const lead = restored
+    ? "你的数字人已经准备好，继续聊下去吧。"
+    : creationRequested
+      ? conversationStarted
+        ? "你的数字人已经准备好，继续聊下去吧。"
+        : "用一张照片和一段声音，准备第一次自然的回应。"
+      : "我们先安静地确认对话、声音与知识，让第一次见面真正自然。";
+  const assurance = restored
+    ? "对话与记忆只保存在这台电脑上。"
+    : creationRequested
+      ? conversationStarted
+        ? "对话与记忆只保存在这台电脑上。"
+        : "你的素材只用于创建这个数字人。"
+      : "准备过程由应用管理，技术信息默认收起。";
 
   return (
     <div className="studio-app">
@@ -74,7 +92,19 @@ export default function App() {
           <Settings onSettingsApplied={() => resume()} />
         ) : null}
 
-        {!settingsOpen && snapshot && !creationRequested ? (
+        {!settingsOpen && restore.resumableJob && !restored ? (
+          <p className="studio-status" role="status">
+            检测到未完成的形象构建，可以继续。
+          </p>
+        ) : null}
+
+        {!settingsOpen && restored ? (
+          <ConversationStream
+            portraitPath={restore.defaultHuman?.portraitPath ?? null}
+          />
+        ) : null}
+
+        {!settingsOpen && snapshot && !creationRequested && !restored ? (
           <ReadinessGate
             snapshot={snapshot}
             recommendedAction={recoveryAction}
@@ -85,7 +115,7 @@ export default function App() {
           />
         ) : null}
 
-        {!settingsOpen && !snapshot && isLoading && !error ? (
+        {!settingsOpen && !snapshot && isLoading && !error && !restored ? (
           <section className="studio-status" aria-label="正在载入准备状态">
             <span className="studio-status-mark" aria-hidden="true" />
             <div>
@@ -97,7 +127,7 @@ export default function App() {
           </section>
         ) : null}
 
-        {!settingsOpen && !snapshot && error ? (
+        {!settingsOpen && !snapshot && error && !restored ? (
           <section className="studio-status studio-status-error" role="alert">
             <span className="studio-status-mark" aria-hidden="true">
               !
@@ -118,7 +148,7 @@ export default function App() {
           </section>
         ) : null}
 
-        {!settingsOpen && creationRequested ? (
+        {!settingsOpen && creationRequested && !restored ? (
           <CreationFlow
             onBack={() => setCreationRequested(false)}
             onConversationStarted={() => setConversationStarted(true)}

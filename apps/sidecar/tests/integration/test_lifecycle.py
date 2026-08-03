@@ -411,7 +411,7 @@ async def test_startup_migrates_sqlite_and_restores_latest_incomplete_run(
     restored = await lifecycle.current_run()
 
     assert await database.applied_migration_versions() == (
-        1, 2, 3, 4, 5, 6, 7,
+        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
     )
     assert restored is not None
     assert restored.id == "interrupted-run"

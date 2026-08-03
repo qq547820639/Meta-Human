@@ -61,12 +61,12 @@ def test_unexpected_errors_are_replaced_with_a_generic_safe_envelope() -> None:
     envelope = unexpected_error_envelope(error, request_id="request-safe")
     serialized = envelope.model_dump_json(exclude_none=True)
 
-    assert envelope == ErrorEnvelope(
-        code="internal_error",
-        message="An unexpected error occurred.",
-        retryable=False,
-        request_id="request-safe",
-    )
+    assert envelope.code == "internal_error"
+    assert envelope.message == "An unexpected error occurred."
+    assert envelope.retryable is False
+    assert envelope.request_id == "request-safe"
+    assert envelope.recommended_action is not None
+    assert envelope.timestamp is not None
     assert secret not in serialized
     assert "RuntimeError" not in serialized
     assert "Traceback" not in serialized

@@ -1,4 +1,6 @@
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
+import json
 
 import httpx
 
@@ -23,6 +25,21 @@ class ChatCompletion:
 
 
 @dataclass(frozen=True, slots=True)
+class StructuredReply:
+    answer: str
+    used_source_ids: tuple[str, ...]
+    confidence: float
+    insufficient_context: bool
+    suggested_follow_up: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class StructuredChatCompletion:
+    text: str
+    structured: StructuredReply | None
+
+
+@dataclass(frozen=True, slots=True)
 class Embedding:
     vector: tuple[float, ...]
 
@@ -37,10 +54,77 @@ class OpenAICompatibleClient:
         self._transport = transport
 
     async def chat_completion(self, *, model: str, prompt: str) -> ChatCompletion:
+        text = await self._post_chat(model=model, prompt=prompt, max_tokens=32)
+        return ChatCompletion(text=text)
+
+    async def chat_completion_structured(
+        self,
+        *,
+        model: str,
+        prompt: str,
+    ) -> StructuredChatCompletion:
+        json_prompt = (
+            prompt
+            + "\n\nRespond with ONLY a single JSON object (no markdown, no code "
+            "fences) whose keys are exactly: \"answer\" (string), "
+            "\"used_source_ids\" (array of strings), \"confidence\" (number 0-1), "
+            "\"insufficient_context\" (boolean), "
+            "\"suggested_follow_up\" (string or null)."
+        )
+        text = await self._post_chat(model=model, prompt=json_prompt, max_tokens=512)
+        return StructuredChatCompletion(
+            text=text,
+            structured=parse_structured_reply(text),
+        )
+
+    async def chat_completion_stream(
+        self,
+        *,
+        model: str,
+        prompt: str,
+    ) -> AsyncIterator[str]:
         payload = {
             "model": model,
             "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": 32,
+            "max_tokens": 512,
+            "stream": True,
+        }
+        async with self._client() as client:
+            async with client.stream(
+                "POST",
+                f"{self._config.base_url}/v1/chat/completions",
+                json=payload,
+            ) as response:
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    if not line.startswith("data:"):
+                        continue
+                    data = line[len("data:") :].strip()
+                    if data == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(data)
+                    except (TypeError, ValueError):
+                        continue
+                    choices = chunk.get("choices") or []
+                    if not choices:
+                        continue
+                    delta = choices[0].get("delta") or {}
+                    text = delta.get("content")
+                    if text:
+                        yield text
+
+    async def _post_chat(
+        self,
+        *,
+        model: str,
+        prompt: str,
+        max_tokens: int,
+    ) -> str:
+        payload = {
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": max_tokens,
             "stream": False,
         }
         async with self._client() as client:
@@ -55,7 +139,7 @@ class OpenAICompatibleClient:
                 raise ValueError("chat completion returned empty content")
             if not text.strip():
                 raise EmptyProviderContentError("chat completion returned empty content")
-            return ChatCompletion(text=text.strip())
+            return text.strip()
 
     async def embedding(self, *, model: str, input: str) -> Embedding:
         payload = {"model": model, "input": input}
@@ -101,3 +185,41 @@ class OpenAICompatibleClient:
             timeout=httpx.Timeout(self._config.timeout_seconds),
             transport=self._transport,
         )
+
+
+def parse_structured_reply(text: str) -> StructuredReply | None:
+    try:
+        data = json.loads(text)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    answer = data.get("answer")
+    if not isinstance(answer, str) or not answer.strip():
+        return None
+    used = data.get("used_source_ids")
+    if used is None:
+        used = []
+    if not isinstance(used, list):
+        return None
+    used_ids = tuple(
+        str(item) for item in used if isinstance(item, str) and item
+    )
+    confidence = data.get("confidence")
+    if confidence is None:
+        confidence = 1.0
+    if not isinstance(confidence, (int, float)) or isinstance(confidence, bool):
+        confidence = 0.0
+    insufficient = data.get("insufficient_context")
+    if not isinstance(insufficient, bool):
+        insufficient = False
+    follow_up = data.get("suggested_follow_up")
+    if follow_up is not None and not isinstance(follow_up, str):
+        follow_up = None
+    return StructuredReply(
+        answer=answer.strip(),
+        used_source_ids=used_ids,
+        confidence=float(confidence),
+        insufficient_context=insufficient,
+        suggested_follow_up=follow_up,
+    )

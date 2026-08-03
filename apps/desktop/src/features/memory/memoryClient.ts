@@ -1,79 +1,113 @@
-import { invoke } from "@tauri-apps/api/core";
+import { apiRequest } from "../../api/client";
 
-interface SidecarConnection {
-  readonly baseUrl: string;
-  readonly bearerToken: string;
+/** Memory entry types, mirroring the backend `memory_rules.py`. */
+export const MEMORY_TYPES = [
+  "user_fact",
+  "preference",
+  "goal",
+  "ongoing",
+  "relationship",
+  "habit",
+  "explicit_request",
+] as const;
+
+export type MemoryType = (typeof MEMORY_TYPES)[number];
+
+export const MEMORY_TYPE_LABELS: Record<MemoryType, string> = {
+  user_fact: "基本事实",
+  preference: "偏好",
+  goal: "长期目标",
+  ongoing: "进行中的事项",
+  relationship: "重要关系",
+  habit: "交互习惯",
+  explicit_request: "明确要求记住",
+};
+
+export interface MemoryEntry {
+  readonly id: string;
+  readonly type: string;
+  readonly content: string;
+  readonly source_message_id: string | null;
+  readonly confidence: number | null;
+  readonly created_at: string;
+  readonly updated_at: string;
+  readonly last_used_at: string | null;
+  readonly confirmed_by_user: boolean;
+  readonly sensitive: boolean;
+  readonly expires_at: string | null;
+  readonly conflict_group: string | null;
 }
 
-export interface ConversationMemory {
-  readonly summary: string;
-  readonly createdAt?: string | null;
+export interface MemoryEntryListResponse {
+  readonly entries: readonly MemoryEntry[];
+  readonly total: number;
 }
 
-export async function getConversationMemory(): Promise<ConversationMemory | null> {
-  const connection = await invoke<SidecarConnection>("get_sidecar_connection");
-  const response = await fetch(
-    `${connection.baseUrl}/v1/conversation/memory`,
-    {
-      headers: {
-        Authorization: `Bearer ${connection.bearerToken}`,
-      },
-      credentials: "omit",
-      cache: "no-store",
-    },
-  );
-  if (!response.ok) {
-    throw new Error("无法读取长期记忆。");
-  }
-  const body = (await response.json()) as {
-    summary?: string;
-    created_at?: string | null;
-  } | null;
-  if (!body?.summary) {
-    return null;
-  }
-  return {
-    summary: body.summary,
-    createdAt: body.created_at ?? null,
-  };
+export interface MemorySettings {
+  readonly enabled: boolean;
 }
 
-export async function updateConversationMemory(
-  summary: string,
-): Promise<void> {
-  const connection = await invoke<SidecarConnection>("get_sidecar_connection");
-  const response = await fetch(
-    `${connection.baseUrl}/v1/conversation/memory`,
-    {
-      method: "PUT",
-      headers: {
-        Authorization: `Bearer ${connection.bearerToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ summary }),
-      credentials: "omit",
-      cache: "no-store",
-    },
-  );
-  if (!response.ok) {
-    throw new Error("无法更新长期记忆。");
-  }
+export function memoryTypeLabel(type: string): string {
+  return MEMORY_TYPE_LABELS[type as MemoryType] ?? type;
 }
 
-export async function clearConversationMemory(): Promise<void> {
-  const connection = await invoke<SidecarConnection>("get_sidecar_connection");
-  const response = await fetch(
-    `${connection.baseUrl}/v1/conversation/memory`,
-    {
-      method: "DELETE",
-      headers: {
-        Authorization: `Bearer ${connection.bearerToken}`,
-      },
-      credentials: "omit",
-      cache: "no-store",
-    },
-  );
-  if (!response.ok) {
-    throw new Error("无法清空长期记忆。");
-  }
+/** Lists all memory entries, optionally filtered by type. */
+export async function listMemoryEntries(
+  type?: string,
+): Promise<MemoryEntryListResponse> {
+  return apiRequest<MemoryEntryListResponse>({
+    path: "/v1/memory/entries",
+    query: type ? { type } : undefined,
+  });
+}
+
+/** Updates a single memory entry (content, confirmed, sensitive). */
+export async function updateMemoryEntry(
+  id: string,
+  patch: {
+    content?: string;
+    confirmed?: boolean;
+    sensitive?: boolean;
+    reject?: boolean;
+  },
+): Promise<MemoryEntry> {
+  return apiRequest<MemoryEntry>({
+    method: "PATCH",
+    path: `/v1/memory/entries/${encodeURIComponent(id)}`,
+    body: patch,
+  });
+}
+
+/** Deletes a single memory entry. */
+export async function deleteMemoryEntry(id: string): Promise<MemoryEntry> {
+  return apiRequest<MemoryEntry>({
+    method: "DELETE",
+    path: `/v1/memory/entries/${encodeURIComponent(id)}`,
+  });
+}
+
+/** Clears all memory entries. */
+export async function clearMemoryEntries(): Promise<void> {
+  await apiRequest<{ cleared: boolean }>({
+    method: "DELETE",
+    path: "/v1/memory/entries",
+  });
+}
+
+/** Reads whether the long-term memory system is enabled. */
+export async function getMemorySettings(): Promise<MemorySettings> {
+  return apiRequest<MemorySettings>({
+    path: "/v1/memory/settings",
+  });
+}
+
+/** Enables or disables the long-term memory system. */
+export async function updateMemorySettings(
+  enabled: boolean,
+): Promise<MemorySettings> {
+  return apiRequest<MemorySettings>({
+    method: "PUT",
+    path: "/v1/memory/settings",
+    body: { enabled },
+  });
 }

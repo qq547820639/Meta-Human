@@ -201,10 +201,11 @@ async def test_safe_500_response_still_carries_trusted_acao() -> None:
 
     assert response.status_code == 500
     assert response.headers["access-control-allow-origin"] == TRUSTED_ORIGINS[2]
-    assert response.json() == {
-        "code": "internal_error",
-        "message": "An unexpected error occurred.",
-        "retryable": False,
-        "request_id": response.headers["x-request-id"],
-    }
+    body = response.json()
+    assert body["code"] == "internal_error"
+    assert body["message"] == "An unexpected error occurred."
+    assert body["retryable"] is False
+    assert body["request_id"] == response.headers["x-request-id"]
+    assert body["recommended_action"] is not None
+    assert body["timestamp"] is not None
     assert token not in response.text
