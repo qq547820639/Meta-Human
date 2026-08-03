@@ -1,9 +1,17 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type { BuildJobData, DigitalHumanData } from "../../api/contracts";
 import CreationFlow from "./CreationFlow";
 import {
-  buildAvatar,
+  buildDigitalHumanId,
+  buildIdempotencyKey,
+  cancelBuildJob,
+  cleanupBuildJob,
+  createBuildJob,
+  getBuildJob,
+  getDigitalHuman,
+  retryBuildJob,
   startAvatarStream,
   stopAvatarStream,
 } from "./avatarBuildClient";
@@ -41,10 +49,73 @@ vi.mock("./captureClient", () => ({
 }));
 
 vi.mock("./avatarBuildClient", () => ({
-  buildAvatar: vi.fn(),
+  buildDigitalHumanId: vi.fn(),
+  buildIdempotencyKey: vi.fn(),
+  cancelBuildJob: vi.fn(),
+  cleanupBuildJob: vi.fn(),
+  createBuildJob: vi.fn(),
+  getBuildJob: vi.fn(),
+  getDefaultDigitalHuman: vi.fn(),
+  getDigitalHuman: vi.fn(),
+  retryBuildJob: vi.fn(),
   startAvatarStream: vi.fn(),
   stopAvatarStream: vi.fn(),
 }));
+
+function runningJob(overrides: Partial<BuildJobData> = {}): BuildJobData {
+  return {
+    id: "job-1",
+    status: "running",
+    current_stage: "enroll_voice",
+    stage_progress: null,
+    succeeded_stages: ["validate_inputs"],
+    retry_count: 0,
+    error_code: null,
+    error_detail: null,
+    cancelled: false,
+    digital_human_id: "human-1",
+    created_at: "2026-08-04T00:00:00Z",
+    updated_at: "2026-08-04T00:00:00Z",
+    completed_at: null,
+    ...overrides,
+  };
+}
+
+function readyHuman(): DigitalHumanData {
+  return {
+    id: "human-1",
+    name: "我的数字人",
+    voice_provider_id: "provider",
+    avatar_provider_id: "provider",
+    voice_id: "voice-1",
+    avatar_id: "avatar-1",
+    creation_status: "ready",
+    creation_progress: "done",
+    is_default: true,
+    error: null,
+    portrait_path: "/tmp/portrait.jpg",
+    recording_path: "/tmp/voice.wav",
+    remote_status: null,
+    created_at: "2026-08-04T00:00:00Z",
+    updated_at: "2026-08-04T00:00:00Z",
+  };
+}
+
+async function validateAndConfirm(portraitPath: string, recordingPath: string) {
+  fireEvent.click(screen.getByRole("button", { name: "校验素材" }));
+  await waitFor(() =>
+    expect(
+      screen.getByRole("button", { name: "创建我的数字人" }),
+    ).toBeEnabled(),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "创建我的数字人" }));
+  await waitFor(() =>
+    expect(
+      screen.getByRole("button", { name: "确认上传并创建" }),
+    ).toBeInTheDocument(),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "确认上传并创建" }));
+}
 
 afterEach(() => {
   cleanup();
@@ -286,12 +357,15 @@ describe("CreationFlow", () => {
     ).toBeDisabled();
   });
 
-  it("builds the avatar after both media samples validate", async () => {
+  it("builds the avatar via a build job and starts conversation", async () => {
     const onConversationStarted = vi.fn();
-    vi.mocked(buildAvatar).mockResolvedValue({
-      voiceId: "voice-1",
-      avatarId: "avatar-1",
-    });
+    vi.mocked(buildIdempotencyKey).mockReturnValue("media-12345678");
+    vi.mocked(buildDigitalHumanId).mockReturnValue("human-1");
+    vi.mocked(createBuildJob).mockResolvedValue(runningJob());
+    vi.mocked(getBuildJob).mockResolvedValue(
+      runningJob({ status: "succeeded" }),
+    );
+    vi.mocked(getDigitalHuman).mockResolvedValue(readyHuman());
     vi.mocked(startAvatarStream).mockResolvedValue({
       sessionId: "stream-1",
       streamUrl: "https://gpu.example.com/live/stream-1",
@@ -313,21 +387,7 @@ describe("CreationFlow", () => {
         onConversationStarted={onConversationStarted}
       />,
     );
-    fireEvent.click(screen.getByRole("button", { name: "校验素材" }));
-    await waitFor(() =>
-      expect(
-        screen.getByRole("button", { name: "创建我的数字人" }),
-      ).toBeEnabled(),
-    );
-    fireEvent.click(screen.getByRole("button", { name: "创建我的数字人" }));
-    await waitFor(() =>
-      expect(
-        screen.getByRole("button", { name: "确认上传并创建" }),
-      ).toBeInTheDocument(),
-    );
-    fireEvent.click(
-      screen.getByRole("button", { name: "确认上传并创建" }),
-    );
+    await validateAndConfirm("/tmp/portrait.jpg", "/tmp/voice.wav");
 
     await waitFor(() =>
       expect(screen.getByText(/头像构建完成：voice-1/)).toBeInTheDocument(),
@@ -335,11 +395,15 @@ describe("CreationFlow", () => {
     expect(
       screen.getByRole("button", { name: "创建我的数字人" }),
     ).toBeDisabled();
-    expect(buildAvatar).toHaveBeenCalledWith(
-      "/tmp/portrait.jpg",
-      "/tmp/voice.wav",
-      expect.any(AbortSignal),
+    expect(createBuildJob).toHaveBeenCalledWith(
+      expect.objectContaining({
+        portraitPath: "/tmp/portrait.jpg",
+        recordingPath: "/tmp/voice.wav",
+        idempotencyKey: expect.any(String),
+        digitalHumanId: expect.any(String),
+      }),
     );
+    expect(getDigitalHuman).toHaveBeenCalledWith("human-1");
 
     fireEvent.click(screen.getByRole("button", { name: "开始对话" }));
     await waitFor(() =>
@@ -349,7 +413,7 @@ describe("CreationFlow", () => {
     expect(startAvatarStream).toHaveBeenCalledWith("avatar-1", "voice-1");
   });
 
-  it("requires explicit upload consent before building", async () => {
+  it("requires explicit upload consent before creating a job", async () => {
     vi.mocked(validatePortraitFile).mockResolvedValue({
       format: "jpeg",
       bytes: 2048,
@@ -374,7 +438,7 @@ describe("CreationFlow", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "创建我的数字人" }));
-    expect(buildAvatar).not.toHaveBeenCalled();
+    expect(createBuildJob).not.toHaveBeenCalled();
     expect(
       screen.getByText(/照片和声音会发送到你选择的远程服务/),
     ).toBeInTheDocument();
@@ -385,16 +449,15 @@ describe("CreationFlow", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("shows honest build progress and supports cancellation", async () => {
-    let resolveBuild!: (value: {
-      voiceId: string;
-      avatarId: string;
-    }) => void;
-    vi.mocked(buildAvatar).mockReturnValue(
-      new Promise((resolve) => {
-        resolveBuild = resolve;
-      }),
+  it("shows honest build progress and cancels through the server", async () => {
+    vi.mocked(createBuildJob).mockResolvedValue(runningJob());
+    vi.mocked(getBuildJob).mockResolvedValueOnce(runningJob()).mockResolvedValue(
+      runningJob({ status: "cancelled", cancelled: true }),
     );
+    vi.mocked(cancelBuildJob).mockResolvedValue(
+      runningJob({ status: "cancelling", cancelled: true }),
+    );
+    vi.mocked(cleanupBuildJob).mockResolvedValue(runningJob());
     vi.mocked(validatePortraitFile).mockResolvedValue({
       format: "jpeg",
       bytes: 2048,
@@ -411,22 +474,8 @@ describe("CreationFlow", () => {
         recordingPath="/tmp/voice.wav"
       />,
     );
-    fireEvent.click(screen.getByRole("button", { name: "校验素材" }));
-    await waitFor(() =>
-      expect(
-        screen.getByRole("button", { name: "创建我的数字人" }),
-      ).toBeEnabled(),
-    );
+    await validateAndConfirm("/tmp/portrait.jpg", "/tmp/voice.wav");
 
-    fireEvent.click(screen.getByRole("button", { name: "创建我的数字人" }));
-    await waitFor(() =>
-      expect(
-        screen.getByRole("button", { name: "确认上传并创建" }),
-      ).toBeInTheDocument(),
-    );
-    fireEvent.click(
-      screen.getByRole("button", { name: "确认上传并创建" }),
-    );
     expect(screen.getByRole("status")).toHaveTextContent(
       "正在塑造你的数字人，请稍候…",
     );
@@ -438,22 +487,29 @@ describe("CreationFlow", () => {
     ).toBeDisabled();
 
     fireEvent.click(screen.getByRole("button", { name: "取消创建" }));
-    resolveBuild({ voiceId: "voice-x", avatarId: "avatar-x" });
     await waitFor(() =>
       expect(
         screen.getByText("已取消创建，可以重新开始。"),
       ).toBeInTheDocument(),
     );
+    expect(cancelBuildJob).toHaveBeenCalledWith("job-1");
     expect(screen.queryByText(/头像构建完成/)).not.toBeInTheDocument();
   });
 
   it("shows one recovery action after failure and retries", async () => {
-    vi.mocked(buildAvatar)
-      .mockRejectedValueOnce(new Error("fail"))
-      .mockResolvedValueOnce({
-        voiceId: "voice-y",
-        avatarId: "avatar-y",
-      });
+    vi.mocked(createBuildJob)
+      .mockResolvedValueOnce(runningJob())
+      .mockResolvedValueOnce(runningJob());
+    vi.mocked(getBuildJob)
+      .mockResolvedValueOnce(
+        runningJob({
+          status: "failed",
+          error_detail: "构建失败",
+        }),
+      )
+      .mockResolvedValue(runningJob({ status: "succeeded" }));
+    vi.mocked(retryBuildJob).mockResolvedValue(runningJob());
+    vi.mocked(getDigitalHuman).mockResolvedValue(readyHuman());
     vi.mocked(validatePortraitFile).mockResolvedValue({
       format: "jpeg",
       bytes: 2048,
@@ -470,26 +526,10 @@ describe("CreationFlow", () => {
         recordingPath="/tmp/voice.wav"
       />,
     );
-    fireEvent.click(screen.getByRole("button", { name: "校验素材" }));
-    await waitFor(() =>
-      expect(
-        screen.getByRole("button", { name: "创建我的数字人" }),
-      ).toBeEnabled(),
-    );
-    fireEvent.click(screen.getByRole("button", { name: "创建我的数字人" }));
-    await waitFor(() =>
-      expect(
-        screen.getByRole("button", { name: "确认上传并创建" }),
-      ).toBeInTheDocument(),
-    );
-    fireEvent.click(
-      screen.getByRole("button", { name: "确认上传并创建" }),
-    );
+    await validateAndConfirm("/tmp/portrait.jpg", "/tmp/voice.wav");
 
     await waitFor(() =>
-      expect(
-        screen.getByText("头像构建失败，请稍后重试。"),
-      ).toBeInTheDocument(),
+      expect(screen.getByText("构建失败")).toBeInTheDocument(),
     );
     expect(
       screen.getByRole("button", { name: "重试创建" }),
@@ -497,8 +537,9 @@ describe("CreationFlow", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "重试创建" }));
     await waitFor(() =>
-      expect(screen.getByText(/头像构建完成：voice-y/)).toBeInTheDocument(),
+      expect(screen.getByText(/头像构建完成：voice-1/)).toBeInTheDocument(),
     );
+    expect(retryBuildJob).toHaveBeenCalledWith("job-1");
   });
 
   it("returns to the readiness view when requested", () => {

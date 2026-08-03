@@ -103,10 +103,14 @@ class BuildJobService:
         return await self._repository.get(job_id)
 
     async def current(self) -> BuildJob | None:
-        """Return the most recent unfinished build job, if any."""
+        """Return the most recent unfinished build job, if any. Completed jobs
+        are never reported here so the UI cannot mistake a finished job for a
+        resumable one."""
         unfinished = await self._repository.list_unfinished()
-        if unfinished:
-            return unfinished[0]
+        return unfinished[0] if unfinished else None
+
+    async def recent(self) -> BuildJob | None:
+        """Return the most recent build job, including completed ones."""
         recent = await self._repository.list_recent(limit=1)
         return recent[0] if recent else None
 

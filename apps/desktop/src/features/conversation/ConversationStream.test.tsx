@@ -144,6 +144,7 @@ describe("ConversationStream", () => {
 
   it("stops a generation through the stop endpoint", async () => {
     let events: {
+      onGenerationStarted?: (generationId: string) => void;
       onToken?: (text: string) => void;
     } = {};
     vi.mocked(streamConversationReply).mockImplementation(
@@ -151,7 +152,33 @@ describe("ConversationStream", () => {
         events = nextEvents ?? {};
       },
     );
-    vi.mocked(stopGenerating).mockResolvedValue(undefined);
+    vi.mocked(stopGenerating).mockResolvedValue(true);
+
+    render(<ConversationStream />);
+    fireEvent.change(screen.getByLabelText("问题"), {
+      target: { value: "慢慢说" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+    events.onGenerationStarted?.("gen-abc");
+    events.onToken?.("部分。");
+
+    fireEvent.click(screen.getByRole("button", { name: "停止生成" }));
+    expect(stopGenerating).toHaveBeenCalledTimes(1);
+    expect(stopGenerating).toHaveBeenCalledWith("gen-abc");
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent("已停止生成。"),
+    );
+  });
+
+  it("fails to stop when no generation_id has been received", async () => {
+    let events: {
+      onToken?: (text: string) => void;
+    } = {};
+    vi.mocked(streamConversationReply).mockImplementation(
+      async ({ events: nextEvents }) => {
+        events = nextEvents ?? {};
+      },
+    );
 
     render(<ConversationStream />);
     fireEvent.change(screen.getByLabelText("问题"), {
@@ -161,7 +188,12 @@ describe("ConversationStream", () => {
     events.onToken?.("部分。");
 
     fireEvent.click(screen.getByRole("button", { name: "停止生成" }));
-    expect(stopGenerating).toHaveBeenCalledTimes(1);
+    expect(stopGenerating).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "无法停止生成：尚未收到生成标识，请稍后重试。",
+      ),
+    );
   });
 
   it("loads a selected conversation through the management client", async () => {

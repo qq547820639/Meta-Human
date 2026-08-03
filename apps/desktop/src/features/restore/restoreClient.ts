@@ -1,4 +1,16 @@
 import { apiRequest } from "../../api/client";
+import type {
+  BuildJobData,
+  ConversationData,
+  DigitalHumanData,
+} from "../../api/contracts";
+
+/**
+ * Restore client. The raw response shapes come from the shared contracts in
+ * `../../api/contracts.ts` (which mirror the backend Pydantic models in
+ * `voxstudio_core/api/routes/*.py`). The exported `*Summary` types are thin
+ * UI-facing projections of those contracts so the restore view stays stable.
+ */
 
 export interface DigitalHumanSummary {
   readonly id: string;
@@ -32,31 +44,18 @@ export function isHumanReady(
   return human !== null && isReadyStatus(human.status);
 }
 
-interface RawHuman {
-  readonly id?: unknown;
-  readonly name?: unknown;
-  readonly status?: unknown;
-  readonly portrait_path?: unknown;
-  readonly created_at?: unknown;
-}
-
-function normalizeHuman(body: RawHuman): DigitalHumanSummary {
+/**
+ * Normalizes a `DigitalHumanResponse` (snake_case) into the UI projection.
+ * The backend reports readiness via `creation_status`, not `status`.
+ */
+function normalizeHuman(body: Partial<DigitalHumanData>): DigitalHumanSummary {
   return {
-    id: typeof body.id === "string" ? body.id : "",
-    name: typeof body.name === "string" ? body.name : "",
-    status: typeof body.status === "string" ? body.status : "",
-    portraitPath:
-      typeof body.portrait_path === "string" ? body.portrait_path : null,
-    createdAt: typeof body.created_at === "string" ? body.created_at : null,
+    id: body.id ?? "",
+    name: body.name ?? "",
+    status: body.creation_status ?? "",
+    portraitPath: body.portrait_path ?? null,
+    createdAt: body.created_at ?? null,
   };
-}
-
-interface RawConversation {
-  readonly id?: unknown;
-  readonly name?: unknown;
-  readonly title?: unknown;
-  readonly updated_at?: unknown;
-  readonly archived?: unknown;
 }
 
 function firstConversation(body: unknown): ConversationSummary | null {
@@ -74,16 +73,11 @@ function firstConversation(body: unknown): ConversationSummary | null {
       }
     }
   }
-  const first = items[0] as RawConversation | undefined;
+  const first = items[0] as Partial<ConversationData> | undefined;
   if (!first || typeof first.id !== "string") {
     return null;
   }
-  const title =
-    typeof first.title === "string"
-      ? first.title
-      : typeof first.name === "string"
-        ? first.name
-        : first.id;
+  const title = typeof first.title === "string" ? first.title : first.id;
   return {
     id: first.id,
     name: title,
@@ -98,10 +92,10 @@ function firstConversation(body: unknown): ConversationSummary | null {
  */
 export async function fetchDefaultHuman(): Promise<DigitalHumanSummary | null> {
   try {
-    const body = await apiRequest<RawHuman>({
+    const body = await apiRequest<Partial<DigitalHumanData>>({
       path: "/v1/avatar/humans/default",
     });
-    return normalizeHuman(body);
+    return body === null ? null : normalizeHuman(body);
   } catch {
     return null;
   }
@@ -125,20 +119,22 @@ export async function fetchRecentConversation(): Promise<ConversationSummary | n
 
 /**
  * Fetches an unfinished build job, if any, so the user can resume it. Returns
- * null when none exists or the endpoint is unreachable.
+ * null when none exists or the endpoint is unreachable. The raw shape is the
+ * `BuildJobResponse` contract; the current stage is reported via
+ * `current_stage`.
  */
 export async function fetchResumableBuildJob(): Promise<BuildJobSummary | null> {
   try {
-    const body = await apiRequest<Partial<BuildJobSummary>>({
+    const body = await apiRequest<Partial<BuildJobData>>({
       path: "/v1/avatar/jobs/current",
     });
-    if (typeof body.id !== "string") {
+    if (body === null || typeof body.id !== "string") {
       return null;
     }
     return {
       id: body.id,
       status: body.status ?? "",
-      stage: body.stage ?? null,
+      stage: body.current_stage ?? null,
     };
   } catch {
     return null;

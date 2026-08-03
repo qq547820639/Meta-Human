@@ -1,4 +1,15 @@
 import { apiRequest } from "../../api/client";
+import type {
+  ConversationData,
+  ConversationMessageData,
+} from "../../api/contracts";
+
+/**
+ * Conversation management client. The raw response shapes come from the shared
+ * contracts in `../../api/contracts.ts` (mirroring `routes/conversation.py`).
+ * The exported `*` types below are thin UI-facing projections of those
+ * contracts so the management UI stays stable.
+ */
 
 export interface ConversationSummary {
   readonly id: string;
@@ -20,21 +31,11 @@ export interface ConversationDetail extends ConversationSummary {
   readonly messages: readonly ConversationMessage[];
 }
 
-interface RawConversation {
-  readonly id?: unknown;
-  readonly title?: unknown;
-  readonly name?: unknown;
-  readonly updated_at?: unknown;
-  readonly archived?: unknown;
-}
+type RawConversation = Partial<ConversationData>;
+type RawMessage = Partial<ConversationMessageData>;
 
 function normalizeSummary(raw: RawConversation): ConversationSummary {
-  const title =
-    typeof raw.title === "string"
-      ? raw.title
-      : typeof raw.name === "string"
-        ? raw.name
-        : "";
+  const title = typeof raw.title === "string" ? raw.title : "";
   return {
     id: typeof raw.id === "string" ? raw.id : "",
     name: title,
@@ -74,7 +75,7 @@ function parseMessages(raw: unknown): readonly ConversationMessage[] {
     return [];
   }
   return raw
-    .filter((item): item is Record<string, unknown> => {
+    .filter((item): item is RawMessage => {
       return typeof item === "object" && item !== null;
     })
     .map((item) => ({
@@ -110,12 +111,12 @@ export async function searchConversations(
 }
 
 export async function createConversation(
-  name?: string,
+  title?: string,
 ): Promise<ConversationSummary> {
   const body = await apiRequest<RawConversation>({
     method: "POST",
     path: "/v1/conversations",
-    body: name ? { name } : undefined,
+    body: title ? { title } : undefined,
   });
   return normalizeSummary(body);
 }

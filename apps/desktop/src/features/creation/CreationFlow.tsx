@@ -1,22 +1,33 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { useEffect, useRef, useState } from "react";
 
+import type { DigitalHumanData } from "../../api/contracts";
 import Conversation from "../conversation/Conversation";
 import {
   AvatarBuildState,
   BuildStage,
   buildFailed,
   buildSucceeded,
-  cancelBuild,
+  cancelRequested,
   initialAvatarBuildState,
+  jobAccepted,
+  jobCancelled,
+  jobUpdated,
   retryBuild,
   startBuild,
   validationSucceeded,
 } from "./avatarBuild";
 import {
-  AvatarBuildResult,
   AvatarStreamResult,
-  buildAvatar,
+  buildDigitalHumanId,
+  buildIdempotencyKey,
+  cancelBuildJob,
+  cleanupBuildJob,
+  createBuildJob,
+  getBuildJob,
+  getDefaultDigitalHuman,
+  getDigitalHuman,
+  retryBuildJob,
   startAvatarStream,
   stopAvatarStream,
 } from "./avatarBuildClient";
@@ -45,6 +56,17 @@ const permissionLabels: Record<CapturePermission, string> = {
   authorized: "已允许",
 };
 
+const POLL_INTERVAL_MS = 1500;
+
+/** Terminal job statuses from `routes/avatar.py`; polling stops on these. */
+const TERMINAL_STATUSES = new Set([
+  "succeeded",
+  "failed",
+  "cancelled",
+  "cleanup_pending",
+  "cleanup_failed",
+]);
+
 interface CreationFlowProps {
   readonly portraitPath?: string;
   readonly recordingPath?: string;
@@ -55,19 +77,18 @@ interface CreationFlowProps {
 const buildStageLabels: Record<BuildStage, string> = {
   idle: "等待开始",
   validating: "正在校验素材",
+  submitting: "正在提交创建任务",
   building: "正在塑造形象",
+  cancelling: "正在取消",
+  cancelled: "已取消",
   ready: "已完成",
   failed: "需要重试",
-  cancelled: "已取消",
+  cleanup: "正在清理",
 };
 
 function fileName(path: string | null | undefined): string | null {
   if (!path) return null;
   return path.split(/[\\/]/).pop() || path;
-}
-
-function isAbortError(caught: unknown): boolean {
-  return caught instanceof Error && caught.name === "AbortError";
 }
 
 export default function CreationFlow({
@@ -91,8 +112,7 @@ export default function CreationFlow({
     useState<string | null>(null);
   const [pickedRecordingPath, setPickedRecordingPath] =
     useState<string | null>(null);
-  const [buildResult, setBuildResult] =
-    useState<AvatarBuildResult | null>(null);
+  const [human, setHuman] = useState<DigitalHumanData | null>(null);
   const [avatarStream, setAvatarStream] =
     useState<AvatarStreamResult | null>(null);
   const [startingConversation, setStartingConversation] = useState(false);
@@ -104,24 +124,93 @@ export default function CreationFlow({
   const [buildState, setBuildState] = useState<AvatarBuildState>(
     initialAvatarBuildState,
   );
-  const abortRef = useRef<AbortController | null>(null);
+  const buildJobIdRef = useRef<string | null>(null);
+  const pollTimerRef = useRef<number | null>(null);
   const streamSessionRef = useRef<string | null>(null);
+
+  function stopPolling() {
+    if (pollTimerRef.current !== null) {
+      window.clearInterval(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+  }
 
   useEffect(
     () => () => {
+      stopPolling();
       if (streamSessionRef.current) {
         void stopAvatarStream(streamSessionRef.current);
       }
     },
     [],
   );
+
+  async function pollOnce(jobId: string) {
+    try {
+      const job = await getBuildJob(jobId);
+      if (TERMINAL_STATUSES.has(job.status)) {
+        stopPolling();
+        if (job.status === "succeeded") {
+          setBuildState((current) => buildSucceeded(current, job));
+          await loadDigitalHuman(job.digital_human_id);
+        } else if (job.status === "cancelled") {
+          setBuildState((current) => jobCancelled(current, job));
+          void cleanupBuildJob(jobId).catch(() => {
+            // Cleanup is best-effort; the cancelled state is already shown.
+          });
+        } else if (job.status === "failed") {
+          setBuildState((current) =>
+            buildFailed(current, job.error_detail ?? "头像构建失败，请稍后重试。"),
+          );
+        } else {
+          setBuildState((current) => jobUpdated(current, job));
+        }
+      } else {
+        setBuildState((current) => jobUpdated(current, job));
+      }
+    } catch {
+      stopPolling();
+      setBuildState((current) =>
+        buildFailed(current, "头像构建失败，请稍后重试。"),
+      );
+    }
+  }
+
+  function startPolling(jobId: string) {
+    stopPolling();
+    void pollOnce(jobId);
+    pollTimerRef.current = window.setInterval(() => {
+      void pollOnce(jobId);
+    }, POLL_INTERVAL_MS);
+  }
+
+  async function loadDigitalHuman(digitalHumanId: string | null) {
+    if (digitalHumanId) {
+      try {
+        setHuman(await getDigitalHuman(digitalHumanId));
+        return;
+      } catch {
+        // Fall through to the default human below.
+      }
+    }
+    try {
+      setHuman(await getDefaultDigitalHuman());
+    } catch {
+      // No ready human yet; conversation start stays disabled.
+    }
+  }
+
   const canCreate = portraitInfo !== null && recordingInfo !== null;
   const resolvedPortraitPath =
     portraitPath ?? capturedPortraitPath ?? pickedPortraitPath;
   const resolvedRecordingPath =
     recordingPath ?? capturedRecordingPath ?? pickedRecordingPath;
   const buildBusy =
-    buildState.stage === "validating" || buildState.stage === "building";
+    buildState.stage === "validating" ||
+    buildState.stage === "submitting" ||
+    buildState.stage === "building" ||
+    buildState.stage === "cancelling" ||
+    buildState.stage === "cleanup";
   const portraitLabel = capturedPortraitPath
     ? `已拍摄照片：${fileName(capturedPortraitPath)}`
     : pickedPortraitPath
@@ -265,41 +354,59 @@ export default function CreationFlow({
     setConfirmingUpload(false);
     setError(null);
     setBuildState((current) => validationSucceeded(startBuild(current)));
-    const controller = new AbortController();
-    abortRef.current = controller;
     try {
-      const result = await buildAvatar(
+      const idempotencyKey = buildIdempotencyKey(
         resolvedPortraitPath,
         resolvedRecordingPath,
-        controller.signal,
       );
-      if (controller.signal.aborted) {
-        setBuildState((current) => cancelBuild(current));
-        return;
-      }
-      setBuildResult(result);
-      setBuildState((current) => buildSucceeded(current));
-    } catch (caught) {
-      if (isAbortError(caught)) {
-        setBuildState((current) => cancelBuild(current));
-        return;
-      }
+      const digitalHumanId = buildDigitalHumanId(
+        resolvedPortraitPath,
+        resolvedRecordingPath,
+      );
+      const job = await createBuildJob({
+        portraitPath: resolvedPortraitPath,
+        recordingPath: resolvedRecordingPath,
+        idempotencyKey,
+        digitalHumanId,
+      });
+      buildJobIdRef.current = job.id;
+      setBuildState((current) => jobAccepted(current, job));
+      startPolling(job.id);
+    } catch {
       setBuildState((current) =>
         buildFailed(current, "头像构建失败，请稍后重试。"),
       );
-    } finally {
-      abortRef.current = null;
     }
   }
 
-  function handleCancelBuild() {
-    abortRef.current?.abort();
-    setBuildState((current) => cancelBuild(current));
+  async function handleCancelBuild() {
+    const jobId = buildJobIdRef.current;
+    if (!jobId) return;
+    setError(null);
+    setBuildState((current) => cancelRequested(current));
+    try {
+      await cancelBuildJob(jobId);
+    } catch {
+      // The job may already be terminal; the poll below will settle it.
+    }
+    startPolling(jobId);
   }
 
-  function handleRetryBuild() {
+  async function handleRetryBuild() {
+    const jobId = buildJobIdRef.current;
+    if (!jobId) return;
+    setError(null);
     setBuildState((current) => retryBuild(current));
-    void handleCreate(true);
+    try {
+      const job = await retryBuildJob(jobId);
+      buildJobIdRef.current = job.id;
+      setBuildState((current) => jobAccepted(current, job));
+      startPolling(job.id);
+    } catch {
+      setBuildState((current) =>
+        buildFailed(current, "重试失败，请稍后重试。"),
+      );
+    }
   }
 
   function handleCapturePortraitWithState() {
@@ -333,9 +440,15 @@ export default function CreationFlow({
   }
 
   function handleBack() {
-    if (buildBusy) {
-      handleCancelBuild();
+    if (buildState.stage === "cancelled" || buildState.stage === "failed") {
+      const jobId = buildJobIdRef.current;
+      if (jobId) {
+        void cleanupBuildJob(jobId).catch(() => {
+          // Best-effort cleanup of remote resources.
+        });
+      }
     }
+    stopPolling();
     if (streamSessionRef.current) {
       void stopAvatarStream(streamSessionRef.current);
       streamSessionRef.current = null;
@@ -344,14 +457,18 @@ export default function CreationFlow({
   }
 
   async function handleStartConversation() {
-    if (!buildResult || !resolvedPortraitPath) return;
+    if (
+      !human ||
+      !human.voice_id ||
+      !human.avatar_id ||
+      !resolvedPortraitPath
+    ) {
+      return;
+    }
     setError(null);
     setStartingConversation(true);
     try {
-      const stream = await startAvatarStream(
-        buildResult.avatarId,
-        buildResult.voiceId,
-      );
+      const stream = await startAvatarStream(human.avatar_id, human.voice_id);
       setAvatarStream(stream);
       streamSessionRef.current = stream.sessionId;
     } catch {
@@ -362,6 +479,11 @@ export default function CreationFlow({
       onConversationStarted?.();
     }
   }
+
+  const job = buildState.job;
+  const buildProgressLabel = job
+    ? `状态：${job.status} · 当前阶段：${job.current_stage} · 已完成：${job.succeeded_stages.join("、") || "无"}`
+    : null;
 
   return (
     <>
@@ -397,6 +519,7 @@ export default function CreationFlow({
               : "录音尚未校验"}
           </p>
           <p>构建状态：{buildStageLabels[buildState.stage]}</p>
+          {buildProgressLabel ? <p>{buildProgressLabel}</p> : null}
           {portraitLabel ? <p>{portraitLabel}</p> : null}
           {recordingLabel ? <p>{recordingLabel}</p> : null}
           {recordingVoice ? (
@@ -479,12 +602,12 @@ export default function CreationFlow({
             校验素材
           </button>
           {buildBusy ? (
-            <button type="button" onClick={handleCancelBuild}>
+            <button type="button" onClick={() => void handleCancelBuild()}>
               取消创建
             </button>
           ) : null}
           {buildState.stage === "failed" ? (
-            <button type="button" onClick={handleRetryBuild}>
+            <button type="button" onClick={() => void handleRetryBuild()}>
               重试创建
             </button>
           ) : null}
@@ -515,12 +638,12 @@ export default function CreationFlow({
           >
             创建我的数字人
           </button>
-          {buildResult ? (
+          {human ? (
             <p>
-              头像构建完成：{buildResult.voiceId} / {buildResult.avatarId}
+              头像构建完成：{human.voice_id ?? "?"} / {human.avatar_id ?? "?"}
             </p>
           ) : null}
-          {buildResult && !conversationStarted ? (
+          {human && !conversationStarted ? (
             <button
               type="button"
               onClick={() => void handleStartConversation()}

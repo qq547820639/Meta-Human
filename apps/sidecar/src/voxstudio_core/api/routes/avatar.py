@@ -117,6 +117,14 @@ def create_avatar_router(
         return None if job is None else _build_job_response(job)
 
     @router.get(
+        "/v1/avatar/jobs/recent",
+        response_model=BuildJobResponse | None,
+    )
+    async def recent_build_job() -> BuildJobResponse | None:
+        job = await build_jobs.recent()
+        return None if job is None else _build_job_response(job)
+
+    @router.get(
         "/v1/avatar/jobs/{job_id}",
         response_model=BuildJobResponse,
     )

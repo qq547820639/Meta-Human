@@ -233,3 +233,64 @@ async def test_idempotency_key_returns_existing_job(
     )
 
     assert first.id == second.id
+
+
+@pytest.mark.asyncio
+async def test_current_never_returns_completed_job(
+    services,
+    tmp_path: Path,
+) -> None:
+    """A completed job must not be reported as resumable via current()."""
+    database, _, humans = services
+    portrait = tmp_path / "p.jpg"
+    recording = tmp_path / "v.wav"
+    portrait.write_bytes(b"img")
+    recording.write_bytes(b"aud")
+    human = await humans.create(name="Bob")
+    client = RecordingClient()
+    service = await _make_service(database, humans, client)
+
+    job = await service.start(
+        portrait_path=str(portrait),
+        recording_path=str(recording),
+        digital_human_id=human.id,
+    )
+    terminal = await _wait_terminal(service, job)
+    assert terminal.status is BuildJobStatus.SUCCEEDED
+
+    assert await service.current() is None
+    recent = await service.recent()
+    assert recent is not None
+    assert recent.id == job.id
+
+
+@pytest.mark.asyncio
+async def test_current_returns_unfinished_job(
+    services,
+    tmp_path: Path,
+) -> None:
+    """current() returns the most recent unfinished job when one exists."""
+    database, _, humans = services
+    portrait = tmp_path / "p.jpg"
+    recording = tmp_path / "v.wav"
+    portrait.write_bytes(b"img")
+    recording.write_bytes(b"aud")
+    human = await humans.create(name="Bob")
+    client = RecordingClient()
+    service = await _make_service(database, humans, client)
+
+    job = await service.start(
+        portrait_path=str(portrait),
+        recording_path=str(recording),
+        digital_human_id=human.id,
+    )
+    # Cancel immediately so the job is still unfinished/pending.
+    pending = await service.get(job.id)
+    if pending.status in (
+        BuildJobStatus.PENDING,
+        BuildJobStatus.RUNNING,
+    ):
+        await service.cancel(job.id)
+    current = await service.current()
+    assert current is not None
+    assert current.id == job.id

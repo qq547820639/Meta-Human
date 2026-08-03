@@ -164,8 +164,19 @@ def create_app(
     app.add_middleware(
         CORSMiddleware,
         allow_origins=list(TRUSTED_DESKTOP_ORIGINS),
-        allow_methods=["GET", "POST"],
-        allow_headers=["Authorization"],
+        allow_methods=[
+            "GET",
+            "POST",
+            "PUT",
+            "PATCH",
+            "DELETE",
+            "OPTIONS",
+        ],
+        allow_headers=[
+            "Authorization",
+            "Content-Type",
+            "X-Request-ID",
+        ],
         allow_credentials=False,
     )
     return app

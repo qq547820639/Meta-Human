@@ -1,11 +1,22 @@
 import { invoke } from "@tauri-apps/api/core";
 
 import { apiRequest } from "../../api/client";
+import type {
+  ConversationMessageData,
+  ReplyData,
+} from "../../api/contracts";
 
 interface SidecarConnection {
   readonly baseUrl: string;
   readonly bearerToken: string;
 }
+
+/**
+ * Conversation client. The raw response shapes come from the shared contracts
+ * in `../../api/contracts.ts` (mirroring `routes/conversation.py`). The
+ * exported reply/history types below are thin UI projections of `ReplyData`
+ * and `ConversationMessageData`.
+ */
 
 export interface ConversationReply {
   readonly text: string;
@@ -51,17 +62,11 @@ export async function postConversationReply(
   if (!response.ok) {
     throw new Error("对话服务暂时无法回复。");
   }
-  const body = (await response.json()) as {
-    text: string;
-    citations: readonly string[];
-    grounded: boolean;
-    audio_base64?: string | null;
-    citation_urls?: readonly (string | null)[];
-  };
+  const body = (await response.json()) as Partial<ReplyData>;
   return {
-    text: body.text,
-    citations: body.citations,
-    grounded: body.grounded,
+    text: body.text ?? "",
+    citations: body.citations ?? [],
+    grounded: body.grounded ?? false,
     audioBase64: body.audio_base64 ?? null,
     citationUrls: body.citation_urls ?? [],
   };
@@ -108,21 +113,14 @@ export async function listConversationHistory(): Promise<ConversationHistory> {
     throw new Error("无法读取对话历史。");
   }
   const body = (await response.json()) as {
-    messages: {
-      role: "user" | "assistant";
-      content: string;
-      citations?: readonly string[];
-      citation_urls?: readonly (string | null)[];
-      grounded?: boolean;
-      created_at?: string | null;
-    }[];
+    messages?: readonly Partial<ConversationMessageData>[];
   };
   return {
-    messages: body.messages.map((message) => ({
-      role: message.role,
-      content: message.content,
-      citations: message.citations,
-      citationUrls: message.citation_urls,
+    messages: (body.messages ?? []).map((message) => ({
+      role: message.role ?? "assistant",
+      content: message.content ?? "",
+      citations: message.citations ?? [],
+      citationUrls: message.citation_urls ?? [],
       grounded: message.grounded,
       createdAt: message.created_at ?? null,
     })),
@@ -162,6 +160,7 @@ export interface Citation {
 }
 
 export interface ConversationStreamEvents {
+  readonly onGenerationStarted?: (generationId: string) => void;
   readonly onStage?: (stage: StreamStage) => void;
   readonly onFoundSources?: (count: number) => void;
   readonly onToken?: (text: string) => void;
@@ -267,6 +266,12 @@ function handleStreamLine(
   }
 
   switch (parsed.type) {
+    case "generation_started": {
+      if (typeof parsed.generation_id === "string") {
+        events?.onGenerationStarted?.(parsed.generation_id);
+      }
+      break;
+    }
     case "stage": {
       const stage = parsed.stage as StreamStage;
       if (stage === "understanding" || stage === "retrieving") {
@@ -338,10 +343,17 @@ function isAbortError(caught: unknown): boolean {
   );
 }
 
-/** Asks the sidecar to stop the current generation. */
-export async function stopGenerating(): Promise<void> {
-  await apiRequest({
+/**
+ * Asks the sidecar to stop the current generation. Resolves with `true` when
+ * the sidecar reports the generation was stopped, `false` otherwise.
+ */
+export async function stopGenerating(
+  generationId: string,
+): Promise<boolean> {
+  const response = await apiRequest<{ stopped: boolean }>({
     method: "POST",
     path: "/v1/conversation/replies/stop",
+    body: { generation_id: generationId },
   });
+  return response.stopped === true;
 }

@@ -30,7 +30,7 @@ describe("restoreClient", () => {
         JSON.stringify({
           id: "human-1",
           name: "我的数字人",
-          status: "ready",
+          creation_status: "ready",
           portrait_path: "/tmp/portrait.jpg",
         }),
         { status: 200, headers: { "Content-Type": "application/json" } },
@@ -76,7 +76,7 @@ describe("restoreClient", () => {
           items: [
             {
               id: "conv-1",
-              name: "昨天的对话",
+              title: "昨天的对话",
               updated_at: "2026-08-01T09:00:00Z",
             },
           ],
@@ -118,7 +118,11 @@ describe("restoreClient", () => {
       "fetch",
       vi.fn<typeof fetch>().mockResolvedValue(
         new Response(
-          JSON.stringify({ id: "job-1", status: "building", stage: "shaping" }),
+          JSON.stringify({
+            id: "job-1",
+            status: "running",
+            current_stage: "enroll_voice",
+          }),
           { status: 200 },
         ),
       ),
@@ -128,8 +132,8 @@ describe("restoreClient", () => {
 
     expect(job).toEqual({
       id: "job-1",
-      status: "building",
-      stage: "shaping",
+      status: "running",
+      stage: "enroll_voice",
     });
   });
 

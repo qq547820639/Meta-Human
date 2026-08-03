@@ -86,12 +86,26 @@ async def test_trusted_origins_receive_cors_on_actual_responses(origin: str) -> 
     assert "access-control-allow-private-network" not in response.headers
 
 
+ALLOWED_METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"}
+
+
+def _assert_allowed_methods(value: str) -> None:
+    assert set(value.split(", ")) == ALLOWED_METHODS
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("method", "path"),
-    (("GET", "/readyz"), ("POST", "/v1/readiness/runs")),
+    (
+        ("GET", "/readyz"),
+        ("POST", "/v1/readiness/runs"),
+        ("PATCH", "/v1/conversations/conv-1"),
+        ("DELETE", "/v1/conversations/conv-1"),
+        ("PUT", "/v1/avatar/humans/human-1/default"),
+        ("DELETE", "/v1/avatar/humans/human-1"),
+    ),
 )
-async def test_authorization_preflight_allows_only_required_methods(
+async def test_authorization_preflight_allows_real_methods(
     method: str,
     path: str,
 ) -> None:
@@ -104,7 +118,7 @@ async def test_authorization_preflight_allows_only_required_methods(
 
     assert response.status_code == 200
     assert response.headers["access-control-allow-origin"] == TRUSTED_ORIGINS[0]
-    assert response.headers["access-control-allow-methods"] == "GET, POST"
+    _assert_allowed_methods(response.headers["access-control-allow-methods"])
     assert "authorization" in response.headers[
         "access-control-allow-headers"
     ].lower()
@@ -117,8 +131,31 @@ async def test_authorization_preflight_allows_only_required_methods(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
+    "headers",
+    ("Authorization", "Content-Type", "X-Request-ID", "Authorization, Content-Type"),
+)
+async def test_preflight_allows_real_request_headers(headers: str) -> None:
+    token = generate_startup_token()
+    async with running_client(CorsLifecycle(), token) as client:
+        response = await client.options(
+            "/v1/conversation/replies",
+            headers=preflight_headers(
+                TRUSTED_ORIGINS[0],
+                method="POST",
+                headers=headers,
+            ),
+        )
+
+    assert response.status_code == 200
+    allowed = response.headers["access-control-allow-headers"].lower()
+    for header in headers.split(", "):
+        assert header.lower() in allowed
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
     ("method", "headers"),
-    (("DELETE", "Authorization"), ("GET", "Authorization, X-Debug")),
+    (("TRACE", "Authorization"), ("GET", "Authorization, X-Debug")),
 )
 async def test_trusted_preflight_rejects_extra_methods_and_headers(
     method: str,

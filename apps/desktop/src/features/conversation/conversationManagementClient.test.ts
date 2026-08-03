@@ -40,8 +40,8 @@ describe("conversationManagementClient", () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
       jsonResponse({
         items: [
-          { id: "conv-1", name: "对话一", updated_at: "2026-08-01T00:00:00Z" },
-          { id: "conv-2", name: "对话二", archived: true },
+          { id: "conv-1", title: "对话一", updated_at: "2026-08-01T00:00:00Z" },
+          { id: "conv-2", title: "对话二", archived: true },
         ],
       }),
     );
@@ -61,7 +61,7 @@ describe("conversationManagementClient", () => {
   it("searches conversations with a query parameter", async () => {
     vi.mocked(invoke).mockResolvedValue(connection);
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
-      jsonResponse([{ id: "conv-1", name: "知识库" }]),
+      jsonResponse([{ id: "conv-1", title: "知识库" }]),
     );
     vi.stubGlobal("fetch", fetchMock);
 
@@ -77,7 +77,7 @@ describe("conversationManagementClient", () => {
   it("creates a new conversation", async () => {
     vi.mocked(invoke).mockResolvedValue(connection);
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
-      jsonResponse({ id: "conv-new", name: "新对话" }),
+      jsonResponse({ id: "conv-new", title: "新对话" }),
     );
     vi.stubGlobal("fetch", fetchMock);
 
@@ -88,7 +88,7 @@ describe("conversationManagementClient", () => {
       "http://127.0.0.1:43123/v1/conversations",
       expect.objectContaining({
         method: "POST",
-        body: JSON.stringify({ name: "新对话" }),
+        body: JSON.stringify({ title: "新对话" }),
       }),
     );
   });
@@ -100,7 +100,7 @@ describe("conversationManagementClient", () => {
       vi.fn<typeof fetch>().mockResolvedValue(
         jsonResponse({
           id: "conv-1",
-          name: "对话一",
+          title: "对话一",
           messages: [
             { role: "user", content: "你好", created_at: "2026-08-01T00:00:00Z" },
             {

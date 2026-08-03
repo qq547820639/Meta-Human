@@ -35,6 +35,32 @@ function streamResponse(lines: string[]): Response {
 }
 
 describe("streamConversationReply", () => {
+  it("fires onGenerationStarted with the generation_id on the first SSE event", async () => {
+    vi.mocked(invoke).mockResolvedValue(connection);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockResolvedValue(
+        streamResponse([
+          'data: {"type":"generation_started","generation_id":"gen-abc"}',
+          'data: {"type":"stage","stage":"understanding"}',
+          'data: {"type":"done","text":"完成"}',
+        ]),
+      ),
+    );
+
+    let generationId: string | null = null;
+    await streamConversationReply({
+      query: "q",
+      events: {
+        onGenerationStarted: (id) => {
+          generationId = id;
+        },
+      },
+    });
+
+    expect(generationId).toBe("gen-abc");
+  });
+
   it("dispatches phased events as it parses the NDJSON stream", async () => {
     vi.mocked(invoke).mockResolvedValue(connection);
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
@@ -181,15 +207,16 @@ describe("streamConversationReply", () => {
 });
 
 describe("stopGenerating", () => {
-  it("posts a stop request to the sidecar", async () => {
+  it("posts a stop request carrying the generation_id", async () => {
     vi.mocked(invoke).mockResolvedValue(connection);
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
-      new Response("{}", { status: 200 }),
+      new Response(JSON.stringify({ stopped: true }), { status: 200 }),
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    await stopGenerating();
+    const stopped = await stopGenerating("gen-abc");
 
+    expect(stopped).toBe(true);
     expect(fetchMock).toHaveBeenCalledWith(
       "http://127.0.0.1:43123/v1/conversation/replies/stop",
       expect.objectContaining({
@@ -197,6 +224,26 @@ describe("stopGenerating", () => {
         headers: expect.objectContaining({
           Authorization: "Bearer startup-token",
         }),
+        body: JSON.stringify({ generation_id: "gen-abc" }),
+      }),
+    );
+  });
+
+  it("resolves false when the request body omits generation_id", async () => {
+    vi.mocked(invoke).mockResolvedValue(connection);
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(JSON.stringify({ stopped: false }), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const stopped = await stopGenerating("");
+
+    expect(stopped).toBe(false);
+    // The request body must still carry the (empty) generation_id.
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:43123/v1/conversation/replies/stop",
+      expect.objectContaining({
+        body: JSON.stringify({ generation_id: "" }),
       }),
     );
   });

@@ -116,6 +116,30 @@ async def test_stream_reply_emits_stages_tokens_citations_and_done(
 
 
 @pytest.mark.asyncio
+async def test_stream_reply_emits_generation_started_first(
+    database: Database,
+) -> None:
+    """The first SSE event must carry the generation_id so the client can stop."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return sse_response("你", "好")
+
+    conversation_service = service(database, httpx.MockTransport(handler))
+    generation_id = conversation_service.create_generation()
+
+    events = [
+        event
+        async for event in conversation_service.stream_reply(
+            query="How does entry work?",
+            generation_id=generation_id,
+        )
+    ]
+
+    assert events[0]["type"] == "generation_started"
+    assert events[0]["generation_id"] == generation_id
+
+
+@pytest.mark.asyncio
 async def test_stream_reply_done_before_tts_and_tts_failure_keeps_text(
     database: Database,
 ) -> None:

@@ -322,6 +322,11 @@ class ConversationService:
         if regenerate and self._history is not None:
             await self._history.delete_last_assistant()
         try:
+            if generation_id is not None:
+                yield {
+                    "type": "generation_started",
+                    "generation_id": generation_id,
+                }
             yield {"type": "stage", "stage": "understanding"}
             yield {"type": "stage", "stage": "retrieving"}
             passages = await self._retriever.search(

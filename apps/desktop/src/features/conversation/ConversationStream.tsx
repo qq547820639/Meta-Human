@@ -61,6 +61,7 @@ export default function ConversationStream({
   const nextId = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
   const lastQueryRef = useRef<string | null>(null);
+  const generationIdRef = useRef<string | null>(null);
 
   function appendMessage(message: Omit<ChatMessage, "id">) {
     nextId.current += 1;
@@ -114,6 +115,7 @@ export default function ConversationStream({
 
     const controller = new AbortController();
     abortRef.current = controller;
+    generationIdRef.current = null;
 
     let assistantId: number | null = null;
     let building = "";
@@ -128,6 +130,9 @@ export default function ConversationStream({
         regenerate,
         signal: controller.signal,
         events: {
+          onGenerationStarted: (generationId) => {
+            generationIdRef.current = generationId;
+          },
           onStage: (stage) => setPhase(stage),
           onFoundSources: (count) => {
             setSourcesCount(count);
@@ -196,11 +201,22 @@ export default function ConversationStream({
   }
 
   async function handleStop() {
+    // Stop local token consumption first.
     abortRef.current?.abort();
+    const generationId = generationIdRef.current;
+    if (!generationId) {
+      setError("无法停止生成：尚未收到生成标识，请稍后重试。");
+      return;
+    }
     try {
-      await stopGenerating();
+      const stopped = await stopGenerating(generationId);
+      if (stopped) {
+        setError("已停止生成。");
+      } else {
+        setError("停止生成失败，请稍后重试。");
+      }
     } catch {
-      // The local abort already stopped the stream; nothing else to do.
+      setError("停止生成失败，请稍后重试。");
     }
   }
 

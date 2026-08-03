@@ -65,7 +65,7 @@ def test_unconfigured_app_keeps_gate_closed_and_routes_absent(
         assert conversation.status_code == 404
 
         avatar = client.post(
-            "/v1/avatar/builds",
+            "/v1/avatar/jobs",
             headers=headers,
             json={
                 "portrait_path": "/tmp/portrait.jpg",
