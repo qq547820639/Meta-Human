@@ -59,10 +59,6 @@ VoxStudio 是一款 **macOS 优先** 的桌面应用，帮助用户塑造并对�
   <img src="docs/screenshots/readiness-1100x760.png" alt="准备工作室主界面（1100×760）" width="680"/>
 </p>
 
-<p align="center">
-  <img src="docs/screenshots/readiness-800x600.png" alt="准备工作室主界面（800×600）" width="520"/>
-</p>
-
 > 更多分辨率截图见 `docs/screenshots/` 目录。
 
 ---
