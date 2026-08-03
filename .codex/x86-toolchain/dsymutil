@@ -1,0 +1,2 @@
+#!/bin/sh
+exec arch -arm64e /usr/bin/dsymutil "$@"

@@ -1,0 +1,26 @@
+.DS_Store
+.env
+.env.*
+!.env.example
+*.log
+
+node_modules/
+dist/
+coverage/
+target/
+.venv/
+__pycache__/
+.pytest_cache/
+*.py[cod]
+
+.idea/
+.vscode/
+
+# Build artifacts / binaries
+apps/desktop/src-tauri/binaries/
+*.dmg
+
+# Output build artifacts (keep docs)
+output/*.sqlite3
+output/*.log
+output/playwright/

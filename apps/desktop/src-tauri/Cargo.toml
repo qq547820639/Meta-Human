@@ -1,0 +1,31 @@
+[package]
+name = "voxstudio-desktop"
+version = "0.1.0"
+description = "VoxStudio desktop application"
+edition = "2021"
+rust-version = "1.77.2"
+build = "build.rs"
+
+[lib]
+name = "voxstudio_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+cpal = "0.15"
+getrandom = "0.2"
+image = { version = "0.25", default-features = false, features = ["jpeg"] }
+keyring = { version = "3", features = ["apple-native"] }
+nokhwa = { version = "0.10.11", default-features = false, features = ["input-avfoundation"] }
+objc2 = "0.6"
+objc2-foundation = "0.3"
+percent-encoding = "2"
+rfd = "0.15"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2", features = ["protocol-asset"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

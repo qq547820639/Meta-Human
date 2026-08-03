@@ -1,0 +1,43 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "VoxStudio",
+  "version": "0.1.0",
+  "identifier": "io.voxstudio.desktop",
+  "build": {
+    "beforeDevCommand": "pnpm dev",
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeBuildCommand": "pnpm build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "VoxStudio",
+        "width": 1100,
+        "height": 760,
+        "minWidth": 800,
+        "minHeight": 600
+      }
+    ],
+    "security": {
+      "assetProtocol": {
+        "enable": true,
+        "scope": [
+          "$TEMP/voxstudio-portrait-*",
+          "$TEMP/voxstudio-recording-*"
+        ]
+      },
+      "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost http://127.0.0.1:*; img-src 'self' data: asset: http://asset.localhost; media-src 'self' data: asset: http://asset.localhost; style-src 'self'; script-src 'self'",
+      "devCsp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost http://127.0.0.1:* ws://127.0.0.1:*; img-src 'self' data: asset: http://asset.localhost; media-src 'self' data: asset: http://asset.localhost; style-src 'self' 'unsafe-inline'; script-src 'self'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "externalBin": ["binaries/digital-human-sidecar"],
+    "macOS": {
+      "infoPlist": "Info.plist"
+    }
+  }
+}

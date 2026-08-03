@@ -1,0 +1,12 @@
+{
+  "name": "voxstudio",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@11.9.0",
+  "scripts": {
+    "build": "pnpm --dir apps/desktop build",
+    "dev": "pnpm --dir apps/desktop dev",
+    "test": "pnpm --dir apps/desktop test",
+    "tauri": "pnpm --dir apps/desktop tauri"
+  }
+}
