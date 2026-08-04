@@ -2,7 +2,7 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { useEffect, useRef, useState } from "react";
 
 import type { DigitalHumanData } from "../../api/contracts";
-import Conversation from "../conversation/Conversation";
+import ConversationWorkspace from "../conversation/ConversationWorkspace";
 import {
   AvatarBuildState,
   BuildStage,
@@ -655,7 +655,7 @@ export default function CreationFlow({
         </div>
       </section>
       {conversationStarted ? (
-        <Conversation
+        <ConversationWorkspace
           portraitPath={resolvedPortraitPath}
           streamUrl={avatarStream?.streamUrl ?? null}
         />

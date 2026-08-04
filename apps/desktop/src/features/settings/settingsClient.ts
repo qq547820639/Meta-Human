@@ -33,6 +33,19 @@ export interface AppSecretsInput {
   readonly feishuRefreshToken?: string;
 }
 
+export type SecretKind =
+  | "remoteApiKey"
+  | "feishuAppSecret"
+  | "feishuAccessToken"
+  | "feishuRefreshToken";
+
+export interface SecretFlags {
+  readonly remoteApiKeySet: boolean;
+  readonly feishuAppSecretSet: boolean;
+  readonly feishuAccessTokenSet: boolean;
+  readonly feishuRefreshTokenSet: boolean;
+}
+
 export interface FeishuTokenBundle {
   readonly accessToken: string;
   readonly refreshToken: string;

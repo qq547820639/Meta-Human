@@ -17,9 +17,7 @@ type StreamPhase =
   | "understanding"
   | "retrieving"
   | "found_sources"
-  | "generating"
-  | "voice"
-  | "playing";
+  | "generating";
 
 interface ChatMessage {
   readonly id: number;
@@ -39,8 +37,6 @@ const phaseLabels: Record<StreamPhase, string> = {
   retrieving: "正在检索知识",
   found_sources: "找到相关来源",
   generating: "正在生成回答",
-  voice: "正在生成声音",
-  playing: "正在启动数字人播放",
 };
 
 /**
@@ -166,7 +162,7 @@ export default function ConversationStream({
             grounded = nextGrounded;
           },
           onDone: (text) => {
-            setPhase("voice");
+            setPhase("idle");
             setMessages((current) =>
               current.map((message) =>
                 message.id === assistantId
@@ -174,8 +170,6 @@ export default function ConversationStream({
                   : message,
               ),
             );
-            window.setTimeout(() => setPhase("playing"), 500);
-            window.setTimeout(() => setPhase("idle"), 1500);
           },
           onError: (message, _retryable) => {
             setError(message);

@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 
-import ConversationStream from "./features/conversation/ConversationStream";
+import ConversationWorkspace from "./features/conversation/ConversationWorkspace";
 import CreationFlow from "./features/creation/CreationFlow";
+import DigitalHumanManagement from "./features/manage/DigitalHumanManagement";
 import ReadinessGate from "./features/readiness/ReadinessGate";
 import Settings from "./features/settings/Settings";
 import { useReadiness } from "./features/readiness/useReadiness";
+import BuildRecoveryCard from "./features/restore/BuildRecoveryCard";
 import { isHumanReady } from "./features/restore/restoreClient";
 import { useRestoreState } from "./features/restore/useRestoreState";
 
@@ -20,6 +22,8 @@ export default function App() {
   const [creationRequested, setCreationRequested] = useState(false);
   const [conversationStarted, setConversationStarted] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [manageOpen, setManageOpen] = useState(false);
+  const [selectedHumanId, setSelectedHumanId] = useState<string | null>(null);
   const [restored, setRestored] = useState(false);
   const canRestore = isHumanReady(restore.defaultHuman) && !restore.isLoading;
 
@@ -83,28 +87,57 @@ export default function App() {
           <h1>{heading}</h1>
           <p className="studio-lead">{lead}</p>
           <p className="studio-assurance">{assurance}</p>
-          <button type="button" onClick={() => setSettingsOpen((open) => !open)}>
+          <button
+            type="button"
+            onClick={() => {
+              setManageOpen((open) => !open);
+              setSettingsOpen(false);
+            }}
+          >
+            {manageOpen ? "关闭管理" : "我的数字人"}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setSettingsOpen((open) => !open);
+              setManageOpen(false);
+            }}
+          >
             {settingsOpen ? "关闭设置" : "设置"}
           </button>
         </header>
+
+        {manageOpen ? (
+          <DigitalHumanManagement
+            onSelectHuman={setSelectedHumanId}
+            onRebuild={() => {
+              setManageOpen(false);
+              setCreationRequested(true);
+            }}
+          />
+        ) : null}
 
         {settingsOpen ? (
           <Settings onSettingsApplied={() => resume()} />
         ) : null}
 
-        {!settingsOpen && restore.resumableJob && !restored ? (
-          <p className="studio-status" role="status">
-            检测到未完成的形象构建，可以继续。
-          </p>
-        ) : null}
-
-        {!settingsOpen && restored ? (
-          <ConversationStream
-            portraitPath={restore.defaultHuman?.portraitPath ?? null}
+        {!settingsOpen && !manageOpen && restore.resumableJob && !restored ? (
+          <BuildRecoveryCard
+            job={restore.resumableJob}
+            onSettled={() => {
+              void restore.retry();
+            }}
           />
         ) : null}
 
-        {!settingsOpen && snapshot && !creationRequested && !restored ? (
+        {!settingsOpen && !manageOpen && restored ? (
+          <ConversationWorkspace
+            portraitPath={restore.defaultHuman?.portraitPath ?? null}
+            initialConversationId={restore.recentConversation?.id ?? null}
+          />
+        ) : null}
+
+        {!settingsOpen && !manageOpen && snapshot && !creationRequested && !restored ? (
           <ReadinessGate
             snapshot={snapshot}
             recommendedAction={recoveryAction}
@@ -115,7 +148,7 @@ export default function App() {
           />
         ) : null}
 
-        {!settingsOpen && !snapshot && isLoading && !error && !restored ? (
+        {!settingsOpen && !manageOpen && !snapshot && isLoading && !error && !restored ? (
           <section className="studio-status" aria-label="正在载入准备状态">
             <span className="studio-status-mark" aria-hidden="true" />
             <div>
@@ -127,7 +160,7 @@ export default function App() {
           </section>
         ) : null}
 
-        {!settingsOpen && !snapshot && error && !restored ? (
+        {!settingsOpen && !manageOpen && !snapshot && error && !restored ? (
           <section className="studio-status studio-status-error" role="alert">
             <span className="studio-status-mark" aria-hidden="true">
               !
@@ -148,7 +181,7 @@ export default function App() {
           </section>
         ) : null}
 
-        {!settingsOpen && creationRequested && !restored ? (
+        {!settingsOpen && !manageOpen && creationRequested && !restored ? (
           <CreationFlow
             onBack={() => setCreationRequested(false)}
             onConversationStarted={() => setConversationStarted(true)}

@@ -407,7 +407,7 @@ describe("CreationFlow", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "开始对话" }));
     await waitFor(() =>
-      expect(screen.getByText("第一次回应")).toBeInTheDocument(),
+      expect(screen.getByText("你的数字人会在这里回应你。")).toBeInTheDocument(),
     );
     expect(onConversationStarted).toHaveBeenCalledTimes(1);
     expect(startAvatarStream).toHaveBeenCalledWith("avatar-1", "voice-1");

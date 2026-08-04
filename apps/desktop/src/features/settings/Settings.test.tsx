@@ -165,7 +165,9 @@ describe("Settings", () => {
     fireEvent.click(screen.getByRole("button", { name: "测试本地连接" }));
 
     await waitFor(() =>
-      expect(screen.getByText("本地服务可连接。")).toBeInTheDocument(),
+      expect(
+        screen.getByText("本地服务连接正常（验证成功）。"),
+      ).toBeInTheDocument(),
     );
     expect(checkLocalProvider).toHaveBeenCalledWith(
       "http://127.0.0.1:11434",
@@ -191,7 +193,9 @@ describe("Settings", () => {
     fireEvent.click(screen.getByRole("button", { name: "测试远程连接" }));
 
     await waitFor(() =>
-      expect(screen.getByText("远程服务可连接。")).toBeInTheDocument(),
+      expect(
+        screen.getByText("远程服务连接正常（验证成功）。"),
+      ).toBeInTheDocument(),
     );
     expect(checkRemoteProvider).toHaveBeenCalledWith(
       "https://gpu.example.com",
@@ -395,10 +399,12 @@ describe("Settings", () => {
     fireEvent.click(screen.getByRole("button", { name: "删除" }));
     await waitFor(() =>
       expect(
-        screen.getByRole("button", { name: "确认删除？" }),
+        screen.getByRole("dialog", { name: "删除知识来源" }),
       ).toBeInTheDocument(),
     );
-    fireEvent.click(screen.getByRole("button", { name: "确认删除？" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "确认删除" }),
+    );
 
     await waitFor(() =>
       expect(screen.getByText("还没有同步的知识来源。")).toBeInTheDocument(),
@@ -420,12 +426,10 @@ describe("Settings", () => {
     fireEvent.click(screen.getByRole("button", { name: "清空本地数据" }));
     await waitFor(() =>
       expect(
-        screen.getByRole("button", { name: "确认清空本地数据？" }),
+        screen.getByRole("button", { name: "清空" }),
       ).toBeInTheDocument(),
     );
-    fireEvent.click(
-      screen.getByRole("button", { name: "确认清空本地数据？" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "清空" }));
 
     await waitFor(() =>
       expect(screen.getByRole("status")).toHaveTextContent(
@@ -521,12 +525,10 @@ describe("Settings", () => {
     fireEvent.click(screen.getByRole("button", { name: "重置全部设置" }));
     await waitFor(() =>
       expect(
-        screen.getByRole("button", { name: "确认重置设置？" }),
+        screen.getByRole("button", { name: "重置" }),
       ).toBeInTheDocument(),
     );
-    fireEvent.click(
-      screen.getByRole("button", { name: "确认重置设置？" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "重置" }));
 
     await waitFor(() =>
       expect(resetAllSettings).toHaveBeenCalledTimes(1),
@@ -535,5 +537,100 @@ describe("Settings", () => {
     await waitFor(() =>
       expect(screen.getByLabelText("本地服务地址")).toHaveValue(""),
     );
+  });
+
+  it("distinguishes an unconfigured local provider from a reachable one", async () => {
+    vi.mocked(loadAppSettings).mockResolvedValue({
+      settings: { localBaseUrl: "   " },
+      remoteApiKeySet: false,
+      feishuAppSecretSet: false,
+      feishuAccessTokenSet: false,
+      feishuRefreshTokenSet: false,
+    });
+    vi.mocked(checkLocalProvider).mockResolvedValue(true);
+
+    render(<Settings />);
+    await waitFor(() =>
+      expect(screen.getByLabelText("本地服务地址")).toBeInTheDocument(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "测试本地连接" }));
+
+    await waitFor(() =>
+      expect(screen.getByText("请先填写本地服务地址。")).toBeInTheDocument(),
+    );
+    expect(checkLocalProvider).not.toHaveBeenCalled();
+  });
+
+  it("reports network unreachable when the local provider check fails", async () => {
+    vi.mocked(loadAppSettings).mockResolvedValue({
+      settings: { localBaseUrl: "http://127.0.0.1:11434" },
+      remoteApiKeySet: false,
+      feishuAppSecretSet: false,
+      feishuAccessTokenSet: false,
+      feishuRefreshTokenSet: false,
+    });
+    vi.mocked(checkLocalProvider).mockResolvedValue(false);
+
+    render(<Settings />);
+    await waitFor(() =>
+      expect(screen.getByLabelText("本地服务地址")).toHaveValue(
+        "http://127.0.0.1:11434",
+      ),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "测试本地连接" }));
+
+    await waitFor(() =>
+      expect(screen.getByText("本地服务网络不可达。")).toBeInTheDocument(),
+    );
+  });
+
+  it("verifies Feishu step by step using real config and document list", async () => {
+    vi.mocked(loadAppSettings).mockResolvedValue({
+      settings: { feishuAppId: "cli_app", feishuSpaceId: "space-1" },
+      remoteApiKeySet: false,
+      feishuAppSecretSet: true,
+      feishuAccessTokenSet: true,
+      feishuRefreshTokenSet: false,
+    });
+    vi.mocked(listKnowledgeSources).mockResolvedValue([
+      {
+        documentId: "doc-1",
+        title: "项目验收手册",
+        sourceUrl: "https://feishu.cn/docx/doc-1",
+        syncedAt: "2026-08-03T00:00:00Z",
+        chunkCount: 3,
+      },
+    ]);
+
+    render(<Settings />);
+    await waitFor(() =>
+      expect(screen.getByLabelText("应用 App ID")).toHaveValue("cli_app"),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "验证飞书配置" }));
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("飞书总状态：已配置但未验证"),
+      ).toBeInTheDocument(),
+    );
+    expect(screen.getByText("已读取到 1 份文档。")).toBeInTheDocument();
+    expect(listKnowledgeSources).toHaveBeenCalled();
+  });
+
+  it("hides advanced settings by default", async () => {
+    vi.mocked(loadAppSettings).mockResolvedValue({
+      settings: {},
+      remoteApiKeySet: false,
+      feishuAppSecretSet: false,
+      feishuAccessTokenSet: false,
+      feishuRefreshTokenSet: false,
+    });
+
+    render(<Settings />);
+    await waitFor(() =>
+      expect(screen.getByText("高级设置")).toBeInTheDocument(),
+    );
+    const advanced = screen.getByLabelText("高级设置");
+    expect(advanced).not.toHaveAttribute("open");
   });
 });

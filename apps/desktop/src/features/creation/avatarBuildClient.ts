@@ -140,6 +140,35 @@ export async function getDigitalHuman(id: string): Promise<DigitalHumanData> {
   });
 }
 
+export async function listHumans(): Promise<DigitalHumanData[]> {
+  return apiRequest<DigitalHumanData[]>({ path: "/v1/avatar/humans" });
+}
+
+export async function setDefaultHuman(id: string): Promise<DigitalHumanData> {
+  return apiRequest<DigitalHumanData>({
+    method: "PUT",
+    path: `/v1/avatar/humans/${encodeURIComponent(id)}/default`,
+  });
+}
+
+export async function renameHuman(
+  id: string,
+  name: string,
+): Promise<DigitalHumanData> {
+  return apiRequest<DigitalHumanData>({
+    method: "PUT",
+    path: `/v1/avatar/humans/${encodeURIComponent(id)}/name`,
+    body: { name },
+  });
+}
+
+export async function deleteHuman(id: string): Promise<void> {
+  return apiRequest<void>({
+    method: "DELETE",
+    path: `/v1/avatar/humans/${encodeURIComponent(id)}`,
+  });
+}
+
 // --- Avatar streams (kept; used to start conversation with a ready human) ------
 
 export async function startAvatarStream(

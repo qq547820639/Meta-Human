@@ -218,6 +218,86 @@ summary:focus-visible {
   text-decoration: underline;
 }
 
+.conversation-regenerated {
+  display: inline-block;
+  margin: 0 0 0.35rem;
+  padding: 0.125rem 0.5rem;
+  border-radius: 999px;
+  background: var(--studio-soft);
+  color: var(--studio-accent-deep);
+  font-size: 0.6875rem;
+  font-weight: 650;
+}
+
+.conversation-message-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.conversation-message-actions button {
+  border: 1px solid var(--studio-line);
+  border-radius: 999px;
+  background: var(--studio-soft);
+  color: var(--studio-accent-deep);
+  padding: 0.25rem 0.625rem;
+  font-size: 0.75rem;
+}
+
+.conversation-load-more {
+  padding: 0.5rem 0;
+  text-align: center;
+  border-bottom: 1px solid var(--studio-line);
+}
+
+.conversation-load-more button {
+  border: 1px solid var(--studio-line);
+  border-radius: 999px;
+  background: var(--studio-soft);
+  color: var(--studio-accent-deep);
+  padding: 0.25rem 0.75rem;
+  font-size: 0.75rem;
+}
+
+.conversation-scroll-bottom {
+  position: sticky;
+  bottom: 0.5rem;
+  display: block;
+  margin: 0.5rem auto 0;
+  border: 1px solid var(--studio-line);
+  border-radius: 999px;
+  background: var(--studio-soft);
+  color: var(--studio-accent-deep);
+  padding: 0.375rem 0.875rem;
+  font-size: 0.8125rem;
+}
+
+.conversation-error {
+  margin: 0.75rem 0 0;
+  padding: 0.625rem 0.75rem;
+  border: 1px solid var(--studio-line);
+  border-radius: 0.5rem;
+  background: var(--studio-soft);
+  color: var(--studio-muted);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+.conversation-error p {
+  margin: 0 0 0.25rem;
+}
+
+.conversation-error button {
+  margin-top: 0.25rem;
+  border: 1px solid var(--studio-line);
+  border-radius: 999px;
+  background: var(--studio-soft);
+  color: var(--studio-accent-deep);
+  padding: 0.25rem 0.625rem;
+  font-size: 0.75rem;
+}
+
 .conversation-avatar {
   width: 6rem;
   aspect-ratio: 1;

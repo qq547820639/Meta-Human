@@ -88,11 +88,11 @@
 
 ## 第四阶段：发布验收
 
-- [ ] Task 12: 全量自动化检查与 E2E smoke
-  - [ ] Python 全部测试、前端全部测试、tsc --noEmit、Vite production build、Rust fmt、Rust Clippy、数据库迁移测试
+- [x] Task 12: 全量自动化检查与 E2E smoke
+  - [x] Python 全部测试（344 项）、前端全部测试（vitest 264 项，含 10 项真实 Sidecar E2E）、tsc --noEmit、Vite production build、Rust fmt、Rust Clippy、数据库迁移测试全部通过
   - [x] 更新 E2E：真实 Sidecar E2E（`apps/desktop/src/e2e/sidecar.e2e.test.ts`）启动真实二进制 + mock provider，仅 mock Tauri `invoke`，驱动真实前端 API client（restore/avatar build/conversation management/conversation），覆盖创建/进度轮询/取消/重试/清理/数字人切换删除/会话 CRUD/普通回复/SSE 流式/用真实 generation_id 停止生成（不 mock fetch，10 场景全绿）
-  - [ ] mock provider E2E、DMG smoke
-  - [ ] 输出"未验证"清单（真实远程 GPU/声音/飞书/签名公证/Intel 与 Apple Silicon 干净安装）
+  - [x] mock provider E2E（`output/mock-provider-smoke.md` 全 True）、DMG smoke（`output/dmg-smoke.md` PASS）
+  - [x] 输出"未验证"清单（`output/provider-readiness.md`：真实远程 GPU/本地模型/飞书 OAuth/签名公证/Intel 与 Apple Silicon 干净安装）
 
 # Task Dependencies
 - [Task 1] 独立（契约层先行，供 Task 2/3/4 使用）
