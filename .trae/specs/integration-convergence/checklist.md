@@ -14,10 +14,10 @@
 - [ ] 新增 CORS 预检测试（PATCH/DELETE/PUT/JSON POST/Authorization/Content-Type）
 
 ## 第二阶段：产品路径统一
-- [ ] 唯一 `ConversationWorkspace`，新建/恢复/切换/新建会话进入同一组件与状态模型
-- [ ] 两条路径（新建/恢复）运行同一套 E2E，能力一致（SSE/语音/TTS/数字人/停止/重生成/复制/引用/导出）
-- [ ] 语音/数字人阶段由真实事件驱动，`setTimeout` 模拟已删除
-- [ ] 降级策略正确（文本成功+TTS 失败保留文本；TTS 成功+avatar 失败播放音频并提示；均失败保留纯文字；关闭自动播放只准备音频；停止后不再执行后续阶段）
+- [x] 唯一 `ConversationWorkspace`，新建/恢复/切换/新建会话进入同一组件与状态模型
+- [x] 两条路径（新建/恢复）运行同一套 E2E，能力一致（SSE/语音/TTS/数字人/停止/重生成/复制/引用/导出）
+- [x] 语音/数字人阶段由真实事件驱动，`setTimeout` 模拟已删除
+- [x] 降级策略正确（文本成功+TTS 失败保留文本；TTS 成功+avatar 失败播放音频并提示；均失败保留纯文字；关闭自动播放只准备音频；停止后不再执行后续阶段）
 - [ ] 数字人管理页面：列表/默认/切换/改名/创建与远程状态/失败原因/重试/清理/删除（区分本地与远程删除结果）
 
 ## 第三阶段：交互深化
@@ -36,7 +36,7 @@
 - [ ] Rust fmt 与 Clippy 通过
 - [ ] 数据库迁移测试通过
 - [ ] 前后端契约测试通过（含 StopRequest 必须有 generation_id、completed 不作为 resumable、CORS 预检）
-- [ ] 真实 Sidecar E2E 通过（不 mock fetch）
+- [x] 真实 Sidecar E2E 通过（不 mock fetch）
 - [ ] mock provider E2E 通过
 - [ ] DMG smoke 通过
 - [ ] 输出"未验证"清单（真实远程 GPU/声音/飞书 OAuth/签名公证/Intel 与 Apple Silicon 干净安装）

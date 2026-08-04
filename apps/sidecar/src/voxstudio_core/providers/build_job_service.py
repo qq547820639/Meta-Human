@@ -174,8 +174,12 @@ class BuildJobService:
         await self._spawn(job)
         return job
 
-    async def resume_unfinished(self) -> None:
-        """Re-drive interrupted jobs after a restart."""
+    async def resume(self) -> None:
+        """Re-drive interrupted jobs after a restart.
+
+        Satisfies ``StartupResumePort`` (``create_app`` calls ``resume()`` on
+        startup to re-drive jobs interrupted by a previous shutdown).
+        """
         for job in await self._repository.list_unfinished():
             await self._spawn(job)
 
