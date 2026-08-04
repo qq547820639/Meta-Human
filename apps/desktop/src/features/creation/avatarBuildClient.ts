@@ -28,6 +28,12 @@ export interface CreateBuildJobInput {
   readonly recordingPath: string;
   readonly idempotencyKey?: string;
   readonly digitalHumanId?: string;
+  /**
+   * Build intent. "new" creates a fresh human, "rebuild" replaces the remote
+   * resources of `digitalHumanId` (updating the SAME record on success),
+   * "copy" derives a new human from the given materials.
+   */
+  readonly mode?: "new" | "rebuild" | "copy";
 }
 
 /**
@@ -84,13 +90,18 @@ export async function createBuildJob(
       ...(input.digitalHumanId
         ? { digital_human_id: input.digitalHumanId }
         : {}),
+      ...(input.mode ? { mode: input.mode } : {}),
     },
   });
 }
 
-export async function getBuildJob(jobId: string): Promise<BuildJobData> {
+export async function getBuildJob(
+  jobId: string,
+  signal?: AbortSignal,
+): Promise<BuildJobData> {
   return apiRequest<BuildJobData>({
     path: `/v1/avatar/jobs/${encodeURIComponent(jobId)}`,
+    signal,
   });
 }
 

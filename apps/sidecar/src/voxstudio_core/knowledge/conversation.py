@@ -201,6 +201,37 @@ class ConversationService:
         repository = self._require_conversations()
         return await repository.count(include_deleted=include_deleted)
 
+    async def list_conversation_messages(
+        self,
+        conversation_id: str,
+        *,
+        limit: int = 50,
+        cursor: str | None = None,
+    ) -> tuple[tuple[ConversationMessage, ...], str | None, bool]:
+        """Return a cursor-paginated page of a conversation's messages.
+
+        Raises ``ConversationNotFoundError`` when the conversation does not exist.
+        Returns ``(messages, next_cursor, has_more)`` where ``messages`` are in
+        chronological order and ``next_cursor`` can be passed back as ``cursor``
+        to load the next (older) page.
+        """
+        repository = self._require_conversations()
+        await repository.get(conversation_id)
+        if self._history is None:
+            return (), None, False
+        before_id: int | None = None
+        if cursor is not None:
+            try:
+                before_id = int(cursor)
+            except (TypeError, ValueError):
+                before_id = None
+        page = await self._history.list_messages(
+            conversation_id=conversation_id,
+            limit=limit,
+            before_id=before_id,
+        )
+        return page.messages, page.next_cursor, page.has_more
+
     async def export_conversation(self, conversation_id: str) -> dict:
         repository = self._require_conversations()
         conversation = await repository.get(conversation_id)
@@ -289,12 +320,18 @@ class ConversationService:
         conversation_id: str | None = None,
     ) -> ConversationReply:
         if regenerate and self._history is not None:
-            await self._history.delete_last_assistant()
+            await self._history.delete_last_assistant(
+                conversation_id=conversation_id
+            )
         passages = await self._retriever.search(
             query=query,
             limit=self._max_sources,
         )
-        prompt = await self._prompt_for(query=query, passages=passages)
+        prompt = await self._prompt_for(
+            query=query,
+            passages=passages,
+            conversation_id=conversation_id,
+        )
         result = await self._chat_client.chat_completion_structured(
             model=self._chat_model,
             prompt=prompt,
@@ -320,7 +357,9 @@ class ConversationService:
         generation_id: str | None = None,
     ) -> AsyncIterator[dict]:
         if regenerate and self._history is not None:
-            await self._history.delete_last_assistant()
+            await self._history.delete_last_assistant(
+                conversation_id=conversation_id
+            )
         try:
             if generation_id is not None:
                 yield {
@@ -338,7 +377,11 @@ class ConversationService:
                 "stage": "found_sources",
                 "count": len(passages),
             }
-            prompt = await self._prompt_for(query=query, passages=passages)
+            prompt = await self._prompt_for(
+                query=query,
+                passages=passages,
+                conversation_id=conversation_id,
+            )
             full_text = ""
             async for token in self._chat_client.chat_completion_stream(
                 model=self._chat_model,
@@ -387,18 +430,27 @@ class ConversationService:
             pass
         if self._tts_client is not None:
             try:
-                await self._tts_client.synthesize(text=reply.text)
+                audio = await self._tts_client.synthesize(text=reply.text)
             except Exception:
-                pass
+                audio = b""
+            if audio:
+                yield {
+                    "type": "audio",
+                    "audio_base64": base64.b64encode(audio).decode("ascii"),
+                }
 
     async def _prompt_for(
         self,
         *,
         query: str,
         passages: tuple[RetrievedPassage, ...],
+        conversation_id: str | None = None,
     ) -> str:
         if not passages:
-            return await self._build_prompt(query=query)
+            return await self._build_prompt(
+                query=query,
+                conversation_id=conversation_id,
+            )
         context = "\n\n".join(
             f"[{passage.title}]\n{passage.content}" for passage in passages
         )
@@ -409,6 +461,7 @@ class ConversationService:
                 "Cite each source title you use.\n\n"
                 f"{context}"
             ),
+            conversation_id=conversation_id,
         )
 
     def _compose_reply(
@@ -506,6 +559,7 @@ class ConversationService:
         *,
         query: str,
         context: str | None = None,
+        conversation_id: str | None = None,
     ) -> str:
         sections: list[str] = []
         if context is not None:
@@ -524,6 +578,7 @@ class ConversationService:
         if self._history is not None:
             recent = await self._history.list_recent(
                 limit=self._history_limit,
+                conversation_id=conversation_id,
             )
             if recent:
                 transcript = "\n".join(
@@ -565,14 +620,18 @@ class ConversationService:
         )
         if conversation_id is not None and self._conversations is not None:
             await self._conversations.set_last_message(conversation_id)
+        if not await self._may_write_long_term_memory(conversation_id):
+            return
         if self._memory_service is not None:
             try:
                 await self._memory_service.record(query=query, text=text)
             except Exception:
                 pass
-        if self._memory_store is None or self._history is None:
+        if self._memory_store is None:
             return
-        total_messages = await self._history.count()
+        total_messages = await self._history.count(
+            conversation_id=conversation_id
+        )
         if total_messages % (self._memory_summary_interval * 2) != 0:
             return
         try:
@@ -580,7 +639,8 @@ class ConversationService:
                 f"{'user' if message.role == 'user' else 'assistant'}: "
                 f"{message.content}"
                 for message in await self._history.list_recent(
-                    limit=self._history_limit
+                    limit=self._history_limit,
+                    conversation_id=conversation_id,
                 )
             )
             prompt = (
@@ -596,6 +656,26 @@ class ConversationService:
             await self._memory_store.save(summary=summary.text)
         except Exception:
             return
+
+    async def _may_write_long_term_memory(
+        self,
+        conversation_id: str | None,
+    ) -> bool:
+        """Long-term memory is only written for active, named conversations.
+
+        Temporary sessions (no ``conversation_id``), deleted conversations, and
+        archived conversations are excluded so their content never leaks into the
+        global (cross-conversation) memory store.
+        """
+        if conversation_id is None:
+            return False
+        if self._conversations is None:
+            return True
+        try:
+            conversation = await self._conversations.get(conversation_id)
+        except ConversationNotFoundError:
+            return False
+        return not conversation.deleted and not conversation.archived
 
     async def _maybe_title_conversation(
         self,

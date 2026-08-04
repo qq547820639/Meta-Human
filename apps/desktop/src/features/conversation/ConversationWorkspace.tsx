@@ -4,15 +4,15 @@ import { useEffect, useRef, useState } from "react";
 import { ApiError, copyRequestId } from "../../api/client";
 import {
   Citation,
-  postConversationReply,
   stopGenerating,
   streamConversationReply,
   transcribeRecording,
 } from "./conversationClient";
 import {
+  ConversationMessage,
   ConversationSummary,
   clearConversationMessages,
-  getConversation,
+  listConversationMessages,
   renameConversation,
 } from "./conversationManagementClient";
 import {
@@ -70,6 +70,11 @@ interface ConversationWorkspaceProps {
   readonly portraitPath?: string | null;
   readonly streamUrl?: string | null;
   readonly initialConversationId?: string | null;
+  /** Id of the selected digital human; used to stop the previous human's
+   * audio / stream when the selection changes. */
+  readonly humanId?: string | null;
+  /** Display name of the selected digital human. */
+  readonly humanName?: string | null;
 }
 
 const suggestedQuestions = [
@@ -112,6 +117,20 @@ function conversationMessageToCitations(
   }));
 }
 
+function serverMessageToChat(
+  message: ConversationMessage,
+  id: number,
+): ChatMessage {
+  return {
+    id,
+    role: message.role,
+    text: message.content,
+    createdAt: message.createdAt ?? undefined,
+    citations: conversationMessageToCitations(message.citations),
+    grounded: message.grounded,
+  };
+}
+
 /** Derives a short conversation title from the first user question. */
 function buildTitleFromQuestion(question: string): string {
   const cleaned = question.replace(/\s+/g, " ").trim();
@@ -133,6 +152,8 @@ export default function ConversationWorkspace({
   portraitPath,
   streamUrl,
   initialConversationId,
+  humanId,
+  humanName,
 }: ConversationWorkspaceProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [query, setQuery] = useState("");
@@ -156,6 +177,7 @@ export default function ConversationWorkspace({
   const [editValue, setEditValue] = useState("");
   const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE_COUNT);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const [hasOlder, setHasOlder] = useState(false);
   const nextId = useRef(0);
   const threadRef = useRef<HTMLOListElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -165,11 +187,64 @@ export default function ConversationWorkspace({
   const stoppedRef = useRef(false);
   const atBottomRef = useRef(true);
   const needsTitleRef = useRef(false);
+  // Server-loaded message ids are negative and unique per conversation so they
+  // never collide with the positive ids assigned to newly streamed messages.
+  const loadedIdRef = useRef(0);
+  const nextCursorRef = useRef<string | null>(null);
+  const loadControllerRef = useRef<AbortController | null>(null);
   // Streaming throttle refs: tokens accumulate into `buildingRef` and are
   // flushed to React at most once per frame via requestAnimationFrame.
   const buildingRef = useRef("");
   const assistantIdRef = useRef<number | null>(null);
   const rafRef = useRef<number | null>(null);
+  const mountedRef = useRef(true);
+  // Tracks the currently-initialized digital human so that switching the
+  // selection safely stops the old human's stream / audio / pending work
+  // before the new human is initialized.
+  const humanIdRef = useRef<string | null>(humanId ?? null);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  // When the selected digital human changes, safely stop the previous human's
+  // avatar stream, audio playback and any unfinished generation before the new
+  // human is initialized. This prevents stale audio / streams crossing the
+  // switch boundary.
+  useEffect(() => {
+    if (humanIdRef.current === humanId) {
+      return;
+    }
+    humanIdRef.current = humanId ?? null;
+    // Cancel any in-flight generation request for the previous human.
+    abortRef.current?.abort();
+    abortRef.current = null;
+    // Pause any audio attached to the previous human's replies.
+    document
+      .querySelectorAll<HTMLAudioElement>("audio.conversation-message-audio")
+      .forEach((node) => {
+        node.pause();
+        node.removeAttribute("src");
+      });
+    // Stop the previous human's avatar stream.
+    const video = document.querySelector<HTMLVideoElement>(
+      ".conversation-avatar-stream",
+    );
+    if (video) {
+      video.pause();
+      video.removeAttribute("src");
+      video.load();
+    }
+    setStreaming(false);
+    setSpeaking(false);
+    setPhase("idle");
+    setError(null);
+    setTtsFailed(false);
+    setAvatarFailed(false);
+  }, [humanId]);
 
   useEffect(() => {
     const node = threadRef.current;
@@ -194,33 +269,43 @@ export default function ConversationWorkspace({
       return;
     }
     let active = true;
-    getConversation(initialConversationId)
-      .then((detail) => {
-        if (!active) {
+    const controller = new AbortController();
+    listConversationMessages(initialConversationId, {
+      limit: PAGE_STEP,
+      signal: controller.signal,
+    })
+      .then((page) => {
+        if (!active || controller.signal.aborted) {
           return;
         }
-        nextId.current = 0;
-        setVisibleCount(INITIAL_VISIBLE_COUNT);
-        setMessages(
-          detail.messages.map((message, index) => ({
-            id: -(index + 1),
-            role: message.role,
-            text: message.content,
-            createdAt: message.createdAt ?? undefined,
-            citations: conversationMessageToCitations(message.citations),
-            grounded: message.grounded,
-          })),
+        loadedIdRef.current = 0;
+        const restored = page.messages.map((message) =>
+          serverMessageToChat(message, nextLoadedId()),
         );
+        setMessages(restored);
+        nextCursorRef.current = page.nextCursor;
+        setHasOlder(page.hasMore);
+        setVisibleCount(restored.length);
       })
       .catch((caught) => {
-        if (active) {
+        if (active && !isAbortError(caught)) {
           setApiError(caught, "无法读取对话内容。");
         }
       });
     return () => {
       active = false;
+      controller.abort();
     };
   }, [initialConversationId]);
+
+  function nextLoadedId() {
+    loadedIdRef.current -= 1;
+    return loadedIdRef.current;
+  }
+
+  function isAbortError(caught: unknown): boolean {
+    return caught instanceof Error && caught.name === "AbortError";
+  }
 
   function setSimpleError(message: string) {
     setError({ message, retryable: false });
@@ -264,21 +349,38 @@ export default function ConversationWorkspace({
     setAvatarFailed(false);
     setPhase("idle");
     resetThreadState();
-    void getConversation(conversation.id)
-      .then((detail) => {
-        nextId.current = 0;
-        setMessages(
-          detail.messages.map((message, index) => ({
-            id: -(index + 1),
-            role: message.role,
-            text: message.content,
-            createdAt: message.createdAt ?? undefined,
-            citations: conversationMessageToCitations(message.citations),
-            grounded: message.grounded,
-          })),
+    // Cancel any in-flight load from a previous conversation so a stale
+    // response can never overwrite the newly selected conversation.
+    loadControllerRef.current?.abort();
+    const controller = new AbortController();
+    loadControllerRef.current = controller;
+    void listConversationMessages(conversation.id, {
+      limit: PAGE_STEP,
+      signal: controller.signal,
+    })
+      .then((page) => {
+        if (controller.signal.aborted) {
+          return;
+        }
+        loadedIdRef.current = 0;
+        const loaded = page.messages.map((message) =>
+          serverMessageToChat(message, nextLoadedId()),
         );
+        setMessages(loaded);
+        nextCursorRef.current = page.nextCursor;
+        setHasOlder(page.hasMore);
+        setVisibleCount(loaded.length);
       })
-      .catch((caught) => setApiError(caught, "无法读取对话内容。"));
+      .catch((caught) => {
+        if (!isAbortError(caught)) {
+          setApiError(caught, "无法读取对话内容。");
+        }
+      })
+      .finally(() => {
+        if (loadControllerRef.current === controller) {
+          loadControllerRef.current = null;
+        }
+      });
   }
 
   // Streaming throttle: flush the accumulated token text to the message that
@@ -414,9 +516,22 @@ export default function ConversationWorkspace({
                   : message,
               ),
             );
-            if (assistantIdRef.current !== null) {
-              void handlePostReply(trimmed, assistantIdRef.current);
+          },
+          onAudio: (audioBase64) => {
+            if (stoppedRef.current || !mountedRef.current) {
+              return;
             }
+            setTtsFailed(false);
+            setPhase("tts_completed");
+            const id = assistantIdRef.current;
+            if (id === null) {
+              return;
+            }
+            setMessages((current) =>
+              current.map((message) =>
+                message.id === id ? { ...message, audioBase64 } : message,
+              ),
+            );
           },
           onError: (message, retryable) => {
             setError({ message, retryable });
@@ -438,48 +553,6 @@ export default function ConversationWorkspace({
         abortRef.current = null;
       }
       setStreaming(false);
-    }
-  }
-
-  /**
-   * Runs the real TTS + avatar phases after the text stream completes. The
-   * phases are driven by real async results (TTS request -> audio, video
-   * element events), never by fixed timers. If the user stopped generation,
-   * the TTS and playback phases are skipped entirely.
-   */
-  async function handlePostReply(query: string, assistantId: number) {
-    if (stoppedRef.current) {
-      return;
-    }
-    if (streamUrl) {
-      setPhase("avatar_stream_starting");
-    }
-    setPhase("tts_started");
-    try {
-      const reply = await postConversationReply(query, abortRef.current?.signal);
-      if (stoppedRef.current) {
-        return;
-      }
-      if (reply.audioBase64) {
-        setTtsFailed(false);
-        setPhase("tts_completed");
-        setMessages((current) =>
-          current.map((message) =>
-            message.id === assistantId
-              ? { ...message, audioBase64: reply.audioBase64 }
-              : message,
-          ),
-        );
-      } else {
-        setTtsFailed(true);
-        setPhase("idle");
-      }
-    } catch (caught) {
-      if (stoppedRef.current) {
-        return;
-      }
-      setTtsFailed(true);
-      setPhase("idle");
     }
   }
 
@@ -546,6 +619,8 @@ export default function ConversationWorkspace({
     setMessages([]);
     setQuery("");
     setError(null);
+    nextCursorRef.current = null;
+    setHasOlder(false);
     if (conversationId) {
       void clearConversationMessages(conversationId).catch((caught) => {
         setApiError(caught, "无法清空对话。");
@@ -701,11 +776,44 @@ export default function ConversationWorkspace({
   }
 
   function loadMoreMessages() {
-    setVisibleCount((count) => count + PAGE_STEP);
+    if (!conversationId || !nextCursorRef.current || !hasOlder) {
+      return;
+    }
+    loadControllerRef.current?.abort();
+    const controller = new AbortController();
+    loadControllerRef.current = controller;
+    const cursor = nextCursorRef.current;
+    void listConversationMessages(conversationId, {
+      limit: PAGE_STEP,
+      cursor,
+      signal: controller.signal,
+    })
+      .then((page) => {
+        if (controller.signal.aborted) {
+          return;
+        }
+        const older = page.messages.map((message) =>
+          serverMessageToChat(message, nextLoadedId()),
+        );
+        setMessages((current) => [...older, ...current]);
+        nextCursorRef.current = page.nextCursor;
+        setHasOlder(page.hasMore);
+        setVisibleCount((count) => count + older.length);
+      })
+      .catch((caught) => {
+        if (!isAbortError(caught)) {
+          setApiError(caught, "无法加载更早的消息。");
+        }
+      })
+      .finally(() => {
+        if (loadControllerRef.current === controller) {
+          loadControllerRef.current = null;
+        }
+      });
   }
 
   const visibleMessages = messages.slice(-visibleCount);
-  const hasOlderMessages = messages.length > visibleCount;
+  const hasOlderMessages = hasOlder;
 
   const statusLabel =
     phase === "found_sources" && sourcesCount > 0
@@ -726,9 +834,15 @@ export default function ConversationWorkspace({
           setError(null);
           setPhase("idle");
           resetThreadState();
+          nextCursorRef.current = null;
+          setHasOlder(false);
           needsTitleRef.current = true;
         }}
-        onCleared={() => setMessages([])}
+        onCleared={() => {
+          setMessages([]);
+          nextCursorRef.current = null;
+          setHasOlder(false);
+        }}
         onDeleted={(id) => {
           if (id === conversationId) {
             setConversationId(null);
@@ -858,6 +972,7 @@ export default function ConversationWorkspace({
                 ) : null}
                 {message.role === "assistant" && message.audioBase64 ? (
                   <audio
+                    className="conversation-message-audio"
                     controls
                     autoPlay={autoPlay}
                     src={`data:audio/wav;base64,${message.audioBase64}`}

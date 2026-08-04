@@ -13,13 +13,16 @@ from voxstudio_core.knowledge.conversation import (
     TranscriptionUnavailableError,
 )
 from voxstudio_core.knowledge.history import ConversationHistoryStore
-from voxstudio_core.knowledge.memory import ConversationMemoryStore
+from voxstudio_core.knowledge.memory import ConversationMemoryStore, MemoryService
 from voxstudio_core.knowledge.indexer import KnowledgeIndexer
 from voxstudio_core.knowledge.retrieval import KnowledgeRetriever
 from voxstudio_core.persistence.conversation_repository import (
     ConversationRepository,
 )
 from voxstudio_core.persistence.database import Database
+from voxstudio_core.persistence.memory_entry_repository import (
+    MemoryEntryRepository,
+)
 from voxstudio_core.providers.local_config import LocalProviderConfig
 from voxstudio_core.providers.openai_compatible import OpenAICompatibleClient
 
@@ -320,16 +323,18 @@ async def test_long_term_memory_is_summarized_and_injected(
         memory_store=ConversationMemoryStore(database),
         history_limit=4,
         memory_summary_interval=2,
+        conversations=ConversationRepository(database),
     )
+    conversation = await service.create_conversation()
 
-    await service.reply(query="第一问")
-    await service.reply(query="第二问")
+    await service.reply(query="第一问", conversation_id=conversation.id)
+    await service.reply(query="第二问", conversation_id=conversation.id)
 
     memory = await ConversationMemoryStore(database).load_latest()
     assert memory is not None
     assert memory.summary == "长期记忆摘要"
 
-    await service.reply(query="第三问")
+    await service.reply(query="第三问", conversation_id=conversation.id)
     prompts = [
         json.loads(request.content)["messages"][0]["content"]
         for request in requests
@@ -485,3 +490,179 @@ async def test_search_conversations(database: Database) -> None:
 
     misses = await service.search_conversations(query="不存在")
     assert misses == ()
+
+
+# --- P0: per-conversation context isolation ---------------------------------
+
+
+def isolation_service(database: Database) -> ConversationService:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": "回答"}}]},
+        )
+
+    return ConversationService(
+        retriever=KnowledgeRetriever(database),
+        chat_client=chat_client(httpx.MockTransport(handler)),
+        chat_model="local-chat",
+        history=ConversationHistoryStore(database),
+        conversations=ConversationRepository(database),
+    )
+
+
+@pytest.mark.asyncio
+async def test_two_conversations_do_not_leak_history_into_prompt(
+    database: Database,
+) -> None:
+    """A conversation's prompt must never contain another conversation's text."""
+    service = isolation_service(database)
+    conv_a = await service.create_conversation()
+    conv_b = await service.create_conversation()
+
+    await service.reply(
+        query="SECRET_A 的消息",
+        conversation_id=conv_a.id,
+    )
+    await service.reply(
+        query="SECRET_B 的消息",
+        conversation_id=conv_b.id,
+    )
+
+    prompt_a = await service._build_prompt(
+        query="追问",
+        conversation_id=conv_a.id,
+    )
+    prompt_b = await service._build_prompt(
+        query="追问",
+        conversation_id=conv_b.id,
+    )
+
+    assert "SECRET_A" in prompt_a
+    assert "SECRET_B" not in prompt_a
+    assert "SECRET_B" in prompt_b
+    assert "SECRET_A" not in prompt_b
+
+
+@pytest.mark.asyncio
+async def test_prompt_for_only_includes_current_conversation_messages(
+    database: Database,
+) -> None:
+    service = isolation_service(database)
+    conv_a = await service.create_conversation()
+    conv_b = await service.create_conversation()
+
+    await service.reply(
+        query="仅属于A的内容",
+        conversation_id=conv_a.id,
+    )
+    await service.reply(
+        query="仅属于B的内容",
+        conversation_id=conv_b.id,
+    )
+
+    prompt_a = await service._prompt_for(
+        query="追问",
+        passages=(),
+        conversation_id=conv_a.id,
+    )
+
+    assert "仅属于A的内容" in prompt_a
+    assert "仅属于B的内容" not in prompt_a
+
+
+@pytest.mark.asyncio
+async def test_regenerate_only_touches_current_conversation(
+    database: Database,
+) -> None:
+    """Regenerating conversation A must not delete/modify conversation B."""
+    history = ConversationHistoryStore(database)
+    service = ConversationService(
+        retriever=KnowledgeRetriever(database),
+        chat_client=chat_client(
+            httpx.MockTransport(
+                lambda _: httpx.Response(
+                    200,
+                    json={"choices": [{"message": {"content": "A答新"}}]},
+                )
+            )
+        ),
+        chat_model="local-chat",
+        history=history,
+        conversations=ConversationRepository(database),
+    )
+    conv_a = await service.create_conversation()
+    conv_b = await service.create_conversation()
+
+    await history.append(
+        role="user",
+        content="A问",
+        conversation_id=conv_a.id,
+    )
+    await history.append(
+        role="assistant",
+        content="A答旧",
+        conversation_id=conv_a.id,
+    )
+    await history.append(
+        role="user",
+        content="B问",
+        conversation_id=conv_b.id,
+    )
+    await history.append(
+        role="assistant",
+        content="B答",
+        conversation_id=conv_b.id,
+    )
+
+    await service.reply(
+        query="A问",
+        regenerate=True,
+        conversation_id=conv_a.id,
+    )
+
+    conv_a_recent = await history.list_recent(conversation_id=conv_a.id)
+    assert [(m.role, m.content) for m in conv_a_recent] == [
+        ("user", "A问"),
+        ("assistant", "A答新"),
+    ]
+
+    conv_b_recent = await history.list_recent(conversation_id=conv_b.id)
+    assert [(m.role, m.content) for m in conv_b_recent] == [
+        ("user", "B问"),
+        ("assistant", "B答"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_temporary_session_does_not_write_long_term_memory(
+    database: Database,
+) -> None:
+    """A session without a conversation_id must not write global long-term memory."""
+    history = ConversationHistoryStore(database)
+    memory_store = ConversationMemoryStore(database)
+    memory_service = MemoryService(
+        repository=MemoryEntryRepository(database),
+        chat_model="local-chat",
+    )
+    service = ConversationService(
+        retriever=KnowledgeRetriever(database),
+        chat_client=chat_client(
+            httpx.MockTransport(
+                lambda _: httpx.Response(
+                    200,
+                    json={"choices": [{"message": {"content": "回答"}}]},
+                )
+            )
+        ),
+        chat_model="local-chat",
+        history=history,
+        memory_store=memory_store,
+        memory_service=memory_service,
+        memory_summary_interval=1,
+    )
+
+    await service.reply(query="临时会话的问题")
+
+    assert await memory_store.load_latest() is None
+    assert await memory_service.list_entries() == ()

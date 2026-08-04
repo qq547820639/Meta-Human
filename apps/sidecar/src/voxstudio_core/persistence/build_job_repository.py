@@ -38,6 +38,13 @@ class BuildJobConflictError(RuntimeError):
     pass
 
 
+#: Build-job intent. "new" creates a fresh digital human, "rebuild" replaces
+#: the materials / remote resources of an existing digital human (updating the
+#: SAME record on success, keeping the original on failure), and "copy" derives
+#: a new digital human from an existing one's materials.
+BUILD_JOB_MODES = frozenset({"new", "rebuild", "copy"})
+
+
 @dataclass(frozen=True, slots=True)
 class BuildJob:
     id: str
@@ -56,6 +63,9 @@ class BuildJob:
     portrait_path: str | None = None
     recording_path: str | None = None
     completed_at: datetime | None = None
+    mode: str = "new"
+    staging_voice_id: str | None = None
+    staging_avatar_id: str | None = None
 
 
 class BuildJobRepository:
@@ -71,6 +81,9 @@ class BuildJobRepository:
         idempotency_key: str | None = None,
         created_at: datetime | None = None,
         job_id: str | None = None,
+        mode: str = "new",
+        staging_voice_id: str | None = None,
+        staging_avatar_id: str | None = None,
     ) -> BuildJob:
         resolved_id = job_id or str(uuid4())
         resolved_created_at = created_at or datetime.now(UTC)
@@ -91,8 +104,8 @@ class BuildJobRepository:
                     current_stage, status, stage_progress, succeeded_stages,
                     retry_count, error_code, error_detail, cancelled,
                     portrait_path, recording_path, created_at, updated_at,
-                    completed_at
-                ) VALUES (?, ?, ?, ?, ?, NULL, ?, 0, NULL, NULL, 0, ?, ?, ?, ?, NULL)
+                    completed_at, mode, staging_voice_id, staging_avatar_id
+                ) VALUES (?, ?, ?, ?, ?, NULL, ?, 0, NULL, NULL, 0, ?, ?, ?, ?, NULL, ?, ?, ?)
                 """,
                 (
                     resolved_id,
@@ -105,6 +118,9 @@ class BuildJobRepository:
                     recording_path,
                     timestamp,
                     timestamp,
+                    mode,
+                    staging_voice_id,
+                    staging_avatar_id,
                 ),
             )
             return await _load(connection, resolved_id)
@@ -159,6 +175,9 @@ class BuildJobRepository:
         digital_human_id: str | None = None,
         completed_at: datetime | None = None,
         updated_at: datetime | None = None,
+        mode: str | None = None,
+        staging_voice_id: str | None = None,
+        staging_avatar_id: str | None = None,
     ) -> BuildJob:
         timestamp = _serialize_timestamp(updated_at or datetime.now(UTC))
         async with self._database.transaction() as connection:
@@ -175,6 +194,9 @@ class BuildJobRepository:
                     cancelled = COALESCE(?, cancelled),
                     digital_human_id = COALESCE(?, digital_human_id),
                     completed_at = COALESCE(?, completed_at),
+                    mode = COALESCE(?, mode),
+                    staging_voice_id = COALESCE(?, staging_voice_id),
+                    staging_avatar_id = COALESCE(?, staging_avatar_id),
                     updated_at = ?
                 WHERE id = ?
                 """,
@@ -191,6 +213,9 @@ class BuildJobRepository:
                     int(cancelled) if cancelled is not None else None,
                     digital_human_id,
                     _serialize_timestamp(completed_at) if completed_at else None,
+                    mode,
+                    staging_voice_id,
+                    staging_avatar_id,
                     timestamp,
                     job_id,
                 ),
@@ -249,6 +274,13 @@ def _from_row(row: aiosqlite.Row) -> BuildJob:
         completed_at=(
             None if completed_at is None else _deserialize_timestamp(completed_at)
         ),
+        mode=row["mode"] if "mode" in row.keys() else "new",
+        staging_voice_id=row["staging_voice_id"]
+        if "staging_voice_id" in row.keys()
+        else None,
+        staging_avatar_id=row["staging_avatar_id"]
+        if "staging_avatar_id" in row.keys()
+        else None,
     )
 
 

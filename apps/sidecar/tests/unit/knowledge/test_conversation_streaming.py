@@ -1,3 +1,4 @@
+import base64
 import json
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -10,6 +11,7 @@ from voxstudio_core.knowledge.conversation import (
     ConversationService,
     GenerationRegistry,
 )
+from voxstudio_core.knowledge.history import ConversationHistoryStore
 from voxstudio_core.knowledge.indexer import KnowledgeIndexer
 from voxstudio_core.knowledge.retrieval import KnowledgeRetriever
 from voxstudio_core.persistence.database import Database
@@ -232,8 +234,156 @@ def test_generation_registry_marks_and_clears_stops() -> None:
     assert registry.is_stopped(generation_id) is False
 
 
-# --- TASK 8: structured citations --------------------------------------------
+class RecordingTtsForStream:
+    def __init__(self, audio: bytes) -> None:
+        self.audio = audio
+        self.texts: list[str] = []
 
+    async def synthesize(self, *, text: str) -> bytes:
+        self.texts.append(text)
+        return self.audio
+
+
+@pytest.mark.asyncio
+async def test_stream_reply_synthesizes_audio_once_and_emits_audio_event(
+    database: Database,
+) -> None:
+    """TTS text must equal the final displayed text, synthesized exactly once."""
+    tts = RecordingTtsForStream(b"RIFF-audio")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return sse_response("你好")
+
+    conversation_service = service(
+        database,
+        httpx.MockTransport(handler),
+        tts=tts,
+    )
+
+    events = [
+        event
+        async for event in conversation_service.stream_reply(
+            query="How does entry work?"
+        )
+    ]
+
+    done = [event for event in events if event["type"] == "done"]
+    audio = [event for event in events if event["type"] == "audio"]
+    assert len(done) == 1
+    assert len(audio) == 1
+    assert audio[0]["audio_base64"] == base64.b64encode(b"RIFF-audio").decode(
+        "ascii"
+    )
+    assert tts.texts == [done[0]["text"]]
+    assert tts.texts == ["你好"]
+
+
+@pytest.mark.asyncio
+async def test_stream_reply_performs_single_generation_and_single_retrieval(
+    database: Database,
+) -> None:
+    """One UI send must trigger exactly one model completion and one retrieval."""
+    chat_calls = {"count": 0}
+    retrieval_calls = {"count": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        chat_calls["count"] += 1
+        return sse_response("你好")
+
+    class CountingRetriever:
+        async def search(
+            self,
+            *,
+            query: str,
+            limit: int = 3,
+        ):
+            retrieval_calls["count"] += 1
+            return await KnowledgeRetriever(database).search(
+                query=query,
+                limit=limit,
+            )
+
+    conversation_service = ConversationService(
+        retriever=CountingRetriever(),
+        chat_client=chat_client(httpx.MockTransport(handler)),
+        chat_model="local-chat",
+    )
+
+    events = [
+        event
+        async for event in conversation_service.stream_reply(
+            query="How does entry work?"
+        )
+    ]
+
+    assert chat_calls["count"] == 1
+    assert retrieval_calls["count"] == 1
+    assert events[-1]["type"] == "done"
+
+
+@pytest.mark.asyncio
+async def test_stream_reply_persists_one_user_and_one_assistant(
+    database: Database,
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return sse_response("回答")
+
+    history = ConversationHistoryStore(database)
+    conversation_service = ConversationService(
+        retriever=KnowledgeRetriever(database),
+        chat_client=chat_client(httpx.MockTransport(handler)),
+        chat_model="local-chat",
+        history=history,
+    )
+
+    events = [
+        event
+        async for event in conversation_service.stream_reply(query="问题")
+    ]
+    assert [event["type"] for event in events].count("done") == 1
+
+    recent = await history.list_recent()
+    assert [(m.role, m.content) for m in recent] == [
+        ("user", "问题"),
+        ("assistant", "回答"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_stream_reply_regenerate_appends_only_one_assistant(
+    database: Database,
+) -> None:
+    responses = iter(["旧回答", "新回答"])
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return sse_response(next(responses))
+
+    history = ConversationHistoryStore(database)
+    conversation_service = ConversationService(
+        retriever=KnowledgeRetriever(database),
+        chat_client=chat_client(httpx.MockTransport(handler)),
+        chat_model="local-chat",
+        history=history,
+    )
+
+    await _drain(conversation_service.stream_reply(query="问题"))
+    await _drain(
+        conversation_service.stream_reply(query="问题", regenerate=True)
+    )
+
+    recent = await history.list_recent()
+    assert [(m.role, m.content) for m in recent] == [
+        ("user", "问题"),
+        ("assistant", "新回答"),
+    ]
+
+
+async def _drain(stream) -> None:
+    async for _ in stream:
+        pass
+
+
+# --- TASK 8: structured citations --------------------------------------------
 
 def test_parse_structured_reply_falls_back_to_none_for_plain_text() -> None:
     assert parse_structured_reply("Wearable Guide explains rear entry.") is None

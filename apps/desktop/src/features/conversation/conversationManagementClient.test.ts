@@ -7,6 +7,7 @@ import {
   createConversation,
   deleteConversation,
   getConversation,
+  listConversationMessages,
   listConversations,
   renameConversation,
   searchConversations,
@@ -93,30 +94,40 @@ describe("conversationManagementClient", () => {
     );
   });
 
-  it("loads a conversation with its messages", async () => {
+  it("loads a conversation by fetching metadata and messages separately", async () => {
     vi.mocked(invoke).mockResolvedValue(connection);
     vi.stubGlobal(
       "fetch",
-      vi.fn<typeof fetch>().mockResolvedValue(
-        jsonResponse({
-          id: "conv-1",
-          title: "对话一",
-          messages: [
-            { role: "user", content: "你好", created_at: "2026-08-01T00:00:00Z" },
-            {
-              role: "assistant",
-              content: "回应",
-              citations: ["[Guide]"],
-              citation_urls: ["https://feishu.cn/docx/doc-1"],
-              grounded: true,
-            },
-          ],
-        }),
-      ),
+      vi.fn<typeof fetch>().mockImplementation((input) => {
+        const url = String(input);
+        if (url.includes("/messages")) {
+          return Promise.resolve(
+            jsonResponse({
+              messages: [
+                { role: "user", content: "你好", created_at: "2026-08-01T00:00:00Z" },
+                {
+                  role: "assistant",
+                  content: "回应",
+                  citations: ["[Guide]"],
+                  citation_urls: ["https://feishu.cn/docx/doc-1"],
+                  grounded: true,
+                },
+              ],
+              next_cursor: null,
+              has_more: false,
+            }),
+          );
+        }
+        return Promise.resolve(
+          jsonResponse({ id: "conv-1", title: "对话一" }),
+        );
+      }),
     );
 
     const detail = await getConversation("conv-1");
 
+    expect(detail.id).toBe("conv-1");
+    expect(detail.name).toBe("对话一");
     expect(detail.messages).toHaveLength(2);
     expect(detail.messages[1]).toMatchObject({
       role: "assistant",
@@ -124,6 +135,48 @@ describe("conversationManagementClient", () => {
       citationUrls: ["https://feishu.cn/docx/doc-1"],
       grounded: true,
     });
+  });
+
+  it("lists conversation messages with cursor pagination", async () => {
+    vi.mocked(invoke).mockResolvedValue(connection);
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      jsonResponse({
+        messages: [
+          { role: "user", content: "你好", created_at: "2026-08-01T00:00:00Z" },
+          { role: "assistant", content: "回应" },
+        ],
+        next_cursor: "42",
+        has_more: true,
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const page = await listConversationMessages("conv-1", {
+      limit: 50,
+      cursor: "41",
+    });
+
+    expect(page.messages).toHaveLength(2);
+    expect(page.nextCursor).toBe("42");
+    expect(page.hasMore).toBe(true);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:43123/v1/conversations/conv-1/messages?limit=50&cursor=41",
+      expect.objectContaining({ method: "GET" }),
+    );
+  });
+
+  it("throws a structured error when the messages contract is missing", async () => {
+    vi.mocked(invoke).mockResolvedValue(connection);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockResolvedValue(
+        jsonResponse({ next_cursor: null, has_more: false }),
+      ),
+    );
+
+    await expect(listConversationMessages("conv-1")).rejects.toThrow(
+      "对话消息接口返回格式异常",
+    );
   });
 
   it("renames, archives, unarchives, deletes and clears a conversation", async () => {

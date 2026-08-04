@@ -82,6 +82,7 @@ class BuildJobService:
         recording_path: str,
         idempotency_key: str | None = None,
         digital_human_id: str | None = None,
+        mode: str = "new",
     ) -> BuildJob:
         if idempotency_key is not None:
             existing = await self._repository.find_by_idempotency_key(
@@ -95,6 +96,7 @@ class BuildJobService:
             digital_human_id=digital_human_id,
             idempotency_key=idempotency_key,
             created_at=self._clock(),
+            mode=mode,
         )
         await self._spawn(job)
         return job
@@ -274,19 +276,18 @@ class BuildJobService:
             )
             return
 
+        # Commit the result to the digital human BEFORE marking the job
+        # succeeded, so an observer that sees SUCCEEDED can rely on the rebuilt /
+        # copied human already reflecting the new remote resources. For
+        # rebuild/copy this is an atomic swap (staging -> live); for new it
+        # marks the freshly built human READY.
+        await self._commit_result(job)
         await self._repository.update(
             job_id,
             status=BuildJobStatus.SUCCEEDED,
             completed_at=self._clock(),
             updated_at=self._clock(),
         )
-        if job.digital_human_id is not None:
-            await self._digital_humans.update_status(
-                job.digital_human_id,
-                status=DigitalHumanStatus.READY,
-                progress="done",
-                updated_at=self._clock(),
-            )
 
     async def _run_stage(
         self, job: BuildJob, stage: BuildStage
@@ -319,7 +320,21 @@ class BuildJobService:
         voice_id: str | None = None,
         avatar_id: str | None = None,
     ) -> BuildJob:
-        if job.digital_human_id is not None and (
+        staging_voice: str | None = None
+        staging_avatar: str | None = None
+        if job.mode in ("rebuild", "copy"):
+            # Stage the newly enrolled remote resources on the job. Do NOT
+            # touch the original digital human: a later failure must keep the
+            # original available version intact. The staged ids are committed
+            # to the digital human only on success (see `_commit_result`).
+            current = await self._repository.get(job.id)
+            staging_voice = current.staging_voice_id
+            staging_avatar = current.staging_avatar_id
+            if voice_id is not None:
+                staging_voice = voice_id
+            if avatar_id is not None:
+                staging_avatar = avatar_id
+        elif job.digital_human_id is not None and (
             voice_id is not None or avatar_id is not None
         ):
             await self._digital_humans.update_status(
@@ -334,15 +349,64 @@ class BuildJobService:
             status=BuildJobStatus.RUNNING,
             succeeded_stages=tuple(sorted(succeeded, key=lambda s: s.value)),
             updated_at=self._clock(),
+            staging_voice_id=staging_voice,
+            staging_avatar_id=staging_avatar,
         )
 
     async def _save_result(self, job: BuildJob) -> None:
-        if job.digital_human_id is None:
+        if job.mode != "new" or job.digital_human_id is None:
             return
         await self._digital_humans.update_status(
             job.digital_human_id,
             status=DigitalHumanStatus.BUILDING,
             progress="saving",
+            updated_at=self._clock(),
+        )
+
+    async def _commit_result(self, job: BuildJob) -> None:
+        """Make the build result the live digital human, atomically.
+
+        - ``new``: the human was already updated during staging; mark READY.
+        - ``rebuild``: update the SAME record with the staged resources.
+        - ``copy``: create a NEW digital human record from the job materials.
+        """
+        if job.digital_human_id is None:
+            return
+        current = await self._repository.get(job.id)
+        voice_id = current.staging_voice_id
+        avatar_id = current.staging_avatar_id
+        if job.mode == "rebuild":
+            await self._digital_humans.update_status(
+                job.digital_human_id,
+                status=DigitalHumanStatus.READY,
+                progress="done",
+                voice_id=voice_id,
+                avatar_id=avatar_id,
+                updated_at=self._clock(),
+            )
+            return
+        if job.mode == "copy":
+            source = await self._digital_humans.get(job.digital_human_id)
+            created = await self._digital_humans.create(
+                name=f"{source.name}（副本）",
+                portrait_path=job.portrait_path,
+                recording_path=job.recording_path,
+                voice_provider_id=source.voice_provider_id,
+                avatar_provider_id=source.avatar_provider_id,
+            )
+            await self._digital_humans.update_status(
+                created.id,
+                status=DigitalHumanStatus.READY,
+                progress="done",
+                voice_id=voice_id,
+                avatar_id=avatar_id,
+                updated_at=self._clock(),
+            )
+            return
+        await self._digital_humans.update_status(
+            job.digital_human_id,
+            status=DigitalHumanStatus.READY,
+            progress="done",
             updated_at=self._clock(),
         )
 
@@ -359,7 +423,7 @@ class BuildJobService:
             error_detail=failure.detail,
             updated_at=self._clock(),
         )
-        if job.digital_human_id is not None:
+        if job.mode == "new" and job.digital_human_id is not None:
             await self._digital_humans.update_status(
                 job.digital_human_id,
                 status=DigitalHumanStatus.FAILED,
@@ -374,7 +438,7 @@ class BuildJobService:
             completed_at=self._clock(),
             updated_at=self._clock(),
         )
-        if job.digital_human_id is not None:
+        if job.mode == "new" and job.digital_human_id is not None:
             await self._digital_humans.update_status(
                 job.digital_human_id,
                 status=DigitalHumanStatus.CANCELLED,

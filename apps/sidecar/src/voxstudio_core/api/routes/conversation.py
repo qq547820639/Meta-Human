@@ -145,6 +145,14 @@ class ConversationListResponse(BaseModel):
     total: int
 
 
+class ConversationMessagesResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    messages: tuple[HistoryMessage, ...]
+    next_cursor: str | None = None
+    has_more: bool = False
+
+
 class ConversationExport(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -411,6 +419,49 @@ def create_conversation_router(
                 detail=str(error),
             ) from error
         return _conversation_out(conversation)
+
+    @router.get(
+        "/v1/conversations/{conversation_id}/messages",
+        response_model=ConversationMessagesResponse,
+    )
+    async def list_conversation_messages(
+        conversation_id: str,
+        limit: int = Query(default=50, ge=1, le=200),
+        cursor: str | None = Query(default=None),
+    ) -> ConversationMessagesResponse:
+        try:
+            messages, next_cursor, has_more = (
+                await service.list_conversation_messages(
+                    conversation_id=conversation_id,
+                    limit=limit,
+                    cursor=cursor,
+                )
+            )
+        except ConversationNotFoundError as error:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=str(error),
+            ) from error
+        except ConversationUnavailableError as error:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=str(error),
+            ) from error
+        return ConversationMessagesResponse(
+            messages=tuple(
+                HistoryMessage(
+                    role=message.role,
+                    content=message.content,
+                    citations=message.citations,
+                    citation_urls=message.citation_urls,
+                    grounded=message.grounded,
+                    created_at=message.created_at,
+                )
+                for message in messages
+            ),
+            next_cursor=next_cursor,
+            has_more=has_more,
+        )
 
     @router.patch(
         "/v1/conversations/{conversation_id}",

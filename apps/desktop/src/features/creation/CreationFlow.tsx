@@ -67,9 +67,20 @@ const TERMINAL_STATUSES = new Set([
   "cleanup_failed",
 ]);
 
+/** Creation intent, mirroring the backend build-job `mode` field. */
+export type CreationMode = "new" | "rebuild" | "copy";
+
 interface CreationFlowProps {
   readonly portraitPath?: string;
   readonly recordingPath?: string;
+  /**
+   * Creation intent. "new" creates a fresh digital human, "rebuild" replaces
+   * the remote resources of `rebuildSource` (updating the SAME record),
+   * "copy" derives a new digital human from `rebuildSource`'s materials.
+   */
+  readonly mode?: CreationMode;
+  /** The source digital human for rebuild / copy flows. */
+  readonly rebuildSource?: DigitalHumanData | null;
   readonly onBack?: () => void;
   readonly onConversationStarted?: () => void;
 }
@@ -94,9 +105,15 @@ function fileName(path: string | null | undefined): string | null {
 export default function CreationFlow({
   portraitPath,
   recordingPath,
+  mode = "new",
+  rebuildSource,
   onBack,
   onConversationStarted,
 }: CreationFlowProps) {
+  const resolvedMode = mode;
+  const rebuildMode = resolvedMode === "rebuild";
+  const copyMode = resolvedMode === "copy";
+  const sourceHuman = rebuildSource ?? null;
   const [portraitInfo, setPortraitInfo] = useState<PortraitInfo | null>(
     null,
   );
@@ -202,9 +219,15 @@ export default function CreationFlow({
 
   const canCreate = portraitInfo !== null && recordingInfo !== null;
   const resolvedPortraitPath =
-    portraitPath ?? capturedPortraitPath ?? pickedPortraitPath;
+    portraitPath ??
+    sourceHuman?.portrait_path ??
+    capturedPortraitPath ??
+    pickedPortraitPath;
   const resolvedRecordingPath =
-    recordingPath ?? capturedRecordingPath ?? pickedRecordingPath;
+    recordingPath ??
+    sourceHuman?.recording_path ??
+    capturedRecordingPath ??
+    pickedRecordingPath;
   const buildBusy =
     buildState.stage === "validating" ||
     buildState.stage === "submitting" ||
@@ -359,15 +382,18 @@ export default function CreationFlow({
         resolvedPortraitPath,
         resolvedRecordingPath,
       );
-      const digitalHumanId = buildDigitalHumanId(
-        resolvedPortraitPath,
-        resolvedRecordingPath,
-      );
+      // For rebuild / copy the build targets the SOURCE human id; the backend
+      // updates the same record (rebuild) or derives a new record (copy).
+      const digitalHumanId =
+        sourceHuman !== null
+          ? sourceHuman.id
+          : buildDigitalHumanId(resolvedPortraitPath, resolvedRecordingPath);
       const job = await createBuildJob({
         portraitPath: resolvedPortraitPath,
         recordingPath: resolvedRecordingPath,
         idempotencyKey,
         digitalHumanId,
+        mode: resolvedMode,
       });
       buildJobIdRef.current = job.id;
       setBuildState((current) => jobAccepted(current, job));
@@ -494,7 +520,13 @@ export default function CreationFlow({
               返回准备状态
             </button>
           ) : null}
-          <p className="studio-status-title">塑造你的数字人</p>
+          <p className="studio-status-title">
+            {rebuildMode
+              ? "重新构建你的数字人"
+              : copyMode
+                ? "复制你的数字人"
+                : "塑造你的数字人"}
+          </p>
           {resolvedPortraitPath ? (
             <div className="creation-preview">
               <img
@@ -636,7 +668,11 @@ export default function CreationFlow({
             disabled={!canCreate || buildBusy || buildState.stage === "ready"}
             onClick={() => void handleCreate()}
           >
-            创建我的数字人
+            {rebuildMode
+              ? "重新构建数字人"
+              : copyMode
+                ? "复制数字人"
+                : "创建我的数字人"}
           </button>
           {human ? (
             <p>

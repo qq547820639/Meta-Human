@@ -111,3 +111,83 @@ async def test_delete_last_assistant_only_removes_latest_reply(
 
     assert await store.delete_last_assistant() is True
     assert await store.delete_last_assistant() is False
+
+
+@pytest.mark.asyncio
+async def test_delete_last_assistant_scoped_to_conversation(
+    database: Database,
+) -> None:
+    store = ConversationHistoryStore(database)
+    await store.append(
+        role="user",
+        content="A问",
+        conversation_id="conv-a",
+    )
+    await store.append(
+        role="assistant",
+        content="A答",
+        conversation_id="conv-a",
+    )
+    await store.append(
+        role="user",
+        content="B问",
+        conversation_id="conv-b",
+    )
+    await store.append(
+        role="assistant",
+        content="B答",
+        conversation_id="conv-b",
+    )
+
+    # Deleting the last assistant of conv-a must leave conv-b untouched.
+    assert await store.delete_last_assistant(conversation_id="conv-a") is True
+    conv_a = await store.list_recent(conversation_id="conv-a")
+    assert [(m.role, m.content) for m in conv_a] == [("user", "A问")]
+    conv_b = await store.list_recent(conversation_id="conv-b")
+    assert [(m.role, m.content) for m in conv_b] == [
+        ("user", "B问"),
+        ("assistant", "B答"),
+    ]
+
+    # Deleting with no matching message in the conversation returns False.
+    assert await store.delete_last_assistant(conversation_id="conv-a") is False
+
+
+@pytest.mark.asyncio
+async def test_list_messages_cursor_paginates_by_conversation(
+    database: Database,
+) -> None:
+    store = ConversationHistoryStore(database)
+    await store.append(
+        role="user",
+        content="第一问",
+        conversation_id="conv-a",
+    )
+    await store.append(
+        role="assistant",
+        content="第一答",
+        conversation_id="conv-a",
+    )
+    await store.append(
+        role="user",
+        content="第一问",
+        conversation_id="conv-b",
+    )
+
+    page = await store.list_messages(conversation_id="conv-a", limit=1)
+    assert [(m.role, m.content) for m in page.messages] == [
+        ("assistant", "第一答")
+    ]
+    assert page.has_more is True
+    assert page.next_cursor is not None
+
+    older = await store.list_messages(
+        conversation_id="conv-a",
+        limit=1,
+        before_id=int(page.next_cursor),
+    )
+    assert [(m.role, m.content) for m in older.messages] == [
+        ("user", "第一问")
+    ]
+    assert older.has_more is False
+    assert older.next_cursor is None

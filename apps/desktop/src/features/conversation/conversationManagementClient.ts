@@ -2,6 +2,7 @@ import { apiRequest } from "../../api/client";
 import type {
   ConversationData,
   ConversationMessageData,
+  ConversationMessagesData,
 } from "../../api/contracts";
 
 /**
@@ -29,6 +30,12 @@ export interface ConversationMessage {
 
 export interface ConversationDetail extends ConversationSummary {
   readonly messages: readonly ConversationMessage[];
+}
+
+export interface ConversationMessagesPage {
+  readonly messages: readonly ConversationMessage[];
+  readonly nextCursor: string | null;
+  readonly hasMore: boolean;
 }
 
 type RawConversation = Partial<ConversationData>;
@@ -123,13 +130,45 @@ export async function createConversation(
 
 export async function getConversation(
   id: string,
+  options: { limit?: number; signal?: AbortSignal } = {},
 ): Promise<ConversationDetail> {
-  const body = await apiRequest<RawConversation & { messages?: unknown }>({
+  const body = await apiRequest<RawConversation>({
     path: `/v1/conversations/${encodeURIComponent(id)}`,
+    signal: options.signal,
+  });
+  const page = await listConversationMessages(id, {
+    limit: options.limit ?? 200,
+    signal: options.signal,
   });
   return {
     ...normalizeSummary(body),
+    messages: page.messages,
+  };
+}
+
+export async function listConversationMessages(
+  id: string,
+  options: { limit?: number; cursor?: string | null; signal?: AbortSignal } = {},
+): Promise<ConversationMessagesPage> {
+  const body = await apiRequest<Partial<ConversationMessagesData>>({
+    path: `/v1/conversations/${encodeURIComponent(id)}/messages`,
+    query: {
+      limit: options.limit,
+      cursor: options.cursor ?? undefined,
+    },
+    signal: options.signal,
+  });
+  // The messages contract is load-bearing: a missing `messages` array means
+  // the conversation has no messages OR the contract drifted. We must not
+  // silently fall back to an empty list, otherwise empty conversations would
+  // mask a real contract break.
+  if (!Array.isArray(body.messages)) {
+    throw new Error("对话消息接口返回格式异常，请检查服务版本。");
+  }
+  return {
     messages: parseMessages(body.messages),
+    nextCursor: typeof body.next_cursor === "string" ? body.next_cursor : null,
+    hasMore: body.has_more === true,
   };
 }
 

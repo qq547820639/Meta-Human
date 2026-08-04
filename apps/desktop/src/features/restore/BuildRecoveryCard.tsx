@@ -1,25 +1,14 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 
 import type { BuildStageName } from "../../api/contracts";
 import {
   cancelBuildJob,
   cleanupBuildJob,
-  getBuildJob,
   retryBuildJob,
 } from "../creation/avatarBuildClient";
-import { normalizeJob, type BuildJobSummary } from "./restoreClient";
+import { useBuildJobPolling } from "./useBuildJobPolling";
+import type { BuildJobSummary } from "./restoreClient";
 import "./BuildRecoveryCard.css";
-
-/** Terminal job statuses; polling stops on these. */
-const TERMINAL_STATUSES: ReadonlySet<string> = new Set([
-  "succeeded",
-  "failed",
-  "cancelled",
-  "cleanup_pending",
-  "cleanup_failed",
-]);
-
-const POLL_INTERVAL_MS = 2000;
 
 const stageLabels: Record<BuildStageName, string> = {
   validate_inputs: "校验素材",
@@ -62,53 +51,61 @@ interface BuildRecoveryCardProps {
 
 /**
  * Actionable recovery card for an unfinished build job. It polls the real
- * build job API and offers continue / cancel / retry / cleanup actions backed
- * by the server, plus a way to inspect the error detail. Progress is driven by
- * real job state, never by a local timer approximation of the stage.
+ * build job API through the unified `useBuildJobPolling` scheduler and offers
+ * continue / cancel / retry / cleanup actions backed by the server, plus a way
+ * to inspect and copy diagnostic info. Progress is driven by real job state,
+ * never by a local timer approximation of the stage.
  */
 export default function BuildRecoveryCard({
   job: initialJob,
   onSettled,
 }: BuildRecoveryCardProps) {
-  const [job, setJob] = useState<BuildJobSummary>(initialJob);
   const [busy, setBusy] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [showErrorDetail, setShowErrorDetail] = useState(false);
-  const pollTimerRef = useRef<number | null>(null);
+  const [copied, setCopied] = useState(false);
 
-  function stopPolling() {
-    if (pollTimerRef.current !== null) {
-      window.clearInterval(pollTimerRef.current);
-      pollTimerRef.current = null;
-    }
+  const {
+    job,
+    errorKind,
+    diagnosis,
+    isRetrying,
+    retryNow,
+    cancel,
+    copyDiagnostics,
+  } = useBuildJobPolling({
+    jobId: initialJob.id,
+    initialJob,
+    onSettled,
+  });
+
+  const currentJob: BuildJobSummary = job ?? initialJob;
+
+  function handleRefresh() {
+    setActionError(null);
+    retryNow();
   }
 
-  function settle(next: BuildJobSummary) {
-    if (TERMINAL_STATUSES.has(next.status)) {
-      stopPolling();
-      onSettled?.(next);
-    }
+  function handleCopyDiagnostics() {
+    void copyDiagnostics().then((ok) => {
+      setCopied(ok);
+      window.setTimeout(() => setCopied(false), 1500);
+    });
   }
 
-  async function refresh() {
+  async function handleCancel() {
+    setBusy("cancel");
+    setActionError(null);
     try {
-      const data = await getBuildJob(job.id);
-      const next = normalizeJob(data);
-      setJob(next);
-      settle(next);
+      await cancelBuildJob(currentJob.id);
+      // The server is driving the job to `cancelled`; stop the local loop.
+      cancel();
     } catch {
-      setActionError("无法读取构建进度，请稍后重试。");
+      setActionError("取消失败，请稍后重试。");
+    } finally {
+      setBusy(null);
     }
   }
-
-  useEffect(() => {
-    void refresh();
-    pollTimerRef.current = window.setInterval(() => {
-      void refresh();
-    }, POLL_INTERVAL_MS);
-    return stopPolling;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [job.id]);
 
   async function runAction(
     key: string,
@@ -118,7 +115,7 @@ export default function BuildRecoveryCard({
     setActionError(null);
     try {
       await action();
-      await refresh();
+      handleRefresh();
     } catch {
       setActionError("操作失败，请稍后重试。");
     } finally {
@@ -127,16 +124,17 @@ export default function BuildRecoveryCard({
   }
 
   const canCancel = ["pending", "running", "cleanup_pending"].includes(
-    job.status,
-  ) && !job.cancelled;
-  const canRetry = job.status === "failed";
+    currentJob.status,
+  ) && !currentJob.cancelled;
+  const canRetry = currentJob.status === "failed";
   const canCleanup = [
     "cancelled",
     "failed",
     "cleanup_pending",
     "cleanup_failed",
-  ].includes(job.status);
-  const hasError = Boolean(job.errorCode || job.errorDetail);
+  ].includes(currentJob.status);
+  const hasError = Boolean(currentJob.errorCode || currentJob.errorDetail);
+  const canCopyDiagnostics = Boolean(diagnosis?.requestId);
 
   return (
     <section className="build-recovery" role="region" aria-label="未完成的形象构建">
@@ -145,37 +143,57 @@ export default function BuildRecoveryCard({
         <div>
           <p className="build-recovery-title">检测到未完成的形象构建</p>
           <p className="build-recovery-sub">
-            状态：{statusLabels[job.status] ?? job.status} · 更新于{" "}
-            {formatTime(job.updatedAt)}
+            状态：{statusLabels[currentJob.status] ?? currentJob.status} · 更新于{" "}
+            {formatTime(currentJob.updatedAt)}
           </p>
         </div>
       </div>
 
+      {isRetrying ? (
+        <p className="build-recovery-retrying" role="status">
+          {errorKind === "timeout"
+            ? "连接超时，正在重试…"
+            : errorKind === "server_failure"
+              ? "服务暂时不可用，正在重试…"
+              : "连接中断，正在重试…"}
+        </p>
+      ) : errorKind === "auth" ? (
+        <p className="build-recovery-action-error" role="alert">
+          鉴权已失效，请重新授权后继续。
+        </p>
+      ) : null}
+
       <dl className="build-recovery-grid">
         <div>
           <dt>当前阶段</dt>
-          <dd>{stageLabels[job.stage as BuildStageName] ?? job.stage ?? "—"}</dd>
+          <dd>
+            {stageLabels[currentJob.stage as BuildStageName] ??
+              currentJob.stage ??
+              "—"}
+          </dd>
         </div>
         <div>
           <dt>已完成阶段</dt>
           <dd>
-            {job.succeededStages && job.succeededStages.length > 0
-              ? ((job.succeededStages as readonly BuildStageName[])
+            {currentJob.succeededStages &&
+            currentJob.succeededStages.length > 0
+              ? ((currentJob.succeededStages as readonly BuildStageName[])
                   .map((stage) => stageLabels[stage] ?? stage)
                   .join("、"))
               : "暂无"}
           </dd>
         </div>
-        {job.stageProgress ? (
+        {currentJob.stageProgress ? (
           <div>
             <dt>阶段进度</dt>
-            <dd>{job.stageProgress}</dd>
+            <dd>{currentJob.stageProgress}</dd>
           </div>
         ) : null}
-        {typeof job.retryCount === "number" && job.retryCount > 0 ? (
+        {typeof currentJob.retryCount === "number" &&
+        currentJob.retryCount > 0 ? (
           <div>
             <dt>重试次数</dt>
-            <dd>{job.retryCount}</dd>
+            <dd>{currentJob.retryCount}</dd>
           </div>
         ) : null}
       </dl>
@@ -192,11 +210,17 @@ export default function BuildRecoveryCard({
           </button>
           {showErrorDetail ? (
             <pre className="build-recovery-error-detail">
-              {job.errorCode ? `错误码：${job.errorCode}\n` : ""}
-              {job.errorDetail ?? "无更多错误信息。"}
+              {currentJob.errorCode ? `错误码：${currentJob.errorCode}\n` : ""}
+              {currentJob.errorDetail ?? "无更多错误信息。"}
             </pre>
           ) : null}
         </div>
+      ) : null}
+
+      {diagnosis?.message ? (
+        <p className="build-recovery-action-error" role="alert">
+          {diagnosis.message}
+        </p>
       ) : null}
 
       {actionError ? (
@@ -209,19 +233,26 @@ export default function BuildRecoveryCard({
         <button
           type="button"
           disabled={busy !== null}
-          onClick={() => void refresh()}
+          onClick={handleRefresh}
         >
-          {busy === "refresh" ? "继续跟踪…" : "继续跟踪"}
+          {busy === "refresh" ? "继续检查…" : "继续检查"}
         </button>
+        {canCopyDiagnostics ? (
+          <button
+            type="button"
+            disabled={busy !== null}
+            onClick={handleCopyDiagnostics}
+          >
+            {copied ? "已复制" : "复制诊断信息"}
+          </button>
+        ) : null}
         {canCancel ? (
           <button
             type="button"
             disabled={busy !== null}
-            onClick={() =>
-              void runAction("cancel", () => cancelBuildJob(job.id))
-            }
+            onClick={() => void handleCancel()}
           >
-            {busy === "cancel" ? "正在取消…" : "取消"}
+            {busy === "cancel" ? "正在取消…" : "取消任务"}
           </button>
         ) : null}
         {canRetry ? (
@@ -229,7 +260,7 @@ export default function BuildRecoveryCard({
             type="button"
             disabled={busy !== null}
             onClick={() =>
-              void runAction("retry", () => retryBuildJob(job.id))
+              void runAction("retry", () => retryBuildJob(currentJob.id))
             }
           >
             {busy === "retry" ? "正在重试…" : "重试"}
@@ -240,7 +271,7 @@ export default function BuildRecoveryCard({
             type="button"
             disabled={busy !== null}
             onClick={() =>
-              void runAction("cleanup", () => cleanupBuildJob(job.id))
+              void runAction("cleanup", () => cleanupBuildJob(currentJob.id))
             }
           >
             {busy === "cleanup" ? "正在清理…" : "清理"}

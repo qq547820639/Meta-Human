@@ -1,17 +1,27 @@
 from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
 
+import httpx
 import pytest
 from httpx import ASGITransport, AsyncClient
 
 from voxstudio_core.api.app import create_app
 from voxstudio_core.config import SidecarConfig, generate_startup_token
-from voxstudio_core.knowledge.conversation import ConversationReply
+from voxstudio_core.knowledge.conversation import (
+    ConversationReply,
+    ConversationService,
+)
+from voxstudio_core.knowledge.history import ConversationHistoryStore
 from voxstudio_core.knowledge.memory import ConversationMemory
+from voxstudio_core.knowledge.retrieval import KnowledgeRetriever
 from voxstudio_core.persistence.conversation_repository import (
     Conversation,
     ConversationNotFoundError,
+    ConversationRepository,
 )
+from voxstudio_core.persistence.database import Database
+from voxstudio_core.providers.local_config import LocalProviderConfig
+from voxstudio_core.providers.openai_compatible import OpenAICompatibleClient
 
 
 class StubConversationService:
@@ -460,3 +470,197 @@ async def test_conversation_get_missing_returns_404() -> None:
         )
 
     assert response.status_code == 404
+
+
+# --- TASK 2: conversation message restore contract ---------------------------
+
+
+def _reply_transport() -> httpx.MockTransport:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": "这是回答。"}}]},
+        )
+
+    return httpx.MockTransport(handler)
+
+
+def _real_conversation_service(
+    database: Database,
+    transport: httpx.MockTransport,
+) -> ConversationService:
+    config = LocalProviderConfig(
+        base_url="http://127.0.0.1:11434",
+        chat_model="local-chat",
+        embedding_model="local-embed",
+    )
+    return ConversationService(
+        retriever=KnowledgeRetriever(database),
+        chat_client=OpenAICompatibleClient(config, transport=transport),
+        chat_model="local-chat",
+        history=ConversationHistoryStore(database),
+        conversations=ConversationRepository(database),
+    )
+
+
+@pytest.mark.asyncio
+async def test_conversation_messages_restore_after_restart(tmp_path) -> None:
+    token = generate_startup_token()
+    database = Database(tmp_path / "conversation.sqlite3")
+    await database.connect()
+    await database.migrate()
+    try:
+        service = _real_conversation_service(database, _reply_transport())
+        app = create_app(
+            config=SidecarConfig(bearer_token=token),
+            lifecycle=EmptyLifecycle(),
+            conversation_service=service,
+        )
+        async with app.router.lifespan_context(app):
+            async with AsyncClient(
+                transport=ASGITransport(app=app),
+                base_url="http://sidecar.test",
+            ) as client:
+                created = await client.post(
+                    "/v1/conversations",
+                    headers=authorization(token),
+                    json={},
+                )
+                conversation_id = created.json()["id"]
+                await service.reply(
+                    query="第一问",
+                    conversation_id=conversation_id,
+                )
+                await service.reply(
+                    query="第二问",
+                    conversation_id=conversation_id,
+                )
+
+        # Simulate a sidecar restart: a brand-new service/repository instance
+        # over the same database must recover the exact same messages.
+        service2 = _real_conversation_service(database, _reply_transport())
+        app2 = create_app(
+            config=SidecarConfig(bearer_token=token),
+            lifecycle=EmptyLifecycle(),
+            conversation_service=service2,
+        )
+        async with app2.router.lifespan_context(app2):
+            async with AsyncClient(
+                transport=ASGITransport(app=app2),
+                base_url="http://sidecar.test",
+            ) as client:
+                page = await client.get(
+                    f"/v1/conversations/{conversation_id}/messages",
+                    headers=authorization(token),
+                )
+
+        assert page.status_code == 200
+        body = page.json()
+        assert body["has_more"] is False
+        assert body["next_cursor"] is None
+        assert [(m["role"], m["content"]) for m in body["messages"]] == [
+            ("user", "第一问"),
+            ("assistant", "这是回答。"),
+            ("user", "第二问"),
+            ("assistant", "这是回答。"),
+        ]
+    finally:
+        await database.close()
+
+
+@pytest.mark.asyncio
+async def test_conversation_get_excludes_messages(tmp_path) -> None:
+    token = generate_startup_token()
+    database = Database(tmp_path / "conversation.sqlite3")
+    await database.connect()
+    await database.migrate()
+    try:
+        service = _real_conversation_service(database, _reply_transport())
+        app = create_app(
+            config=SidecarConfig(bearer_token=token),
+            lifecycle=EmptyLifecycle(),
+            conversation_service=service,
+        )
+        async with app.router.lifespan_context(app):
+            async with AsyncClient(
+                transport=ASGITransport(app=app),
+                base_url="http://sidecar.test",
+            ) as client:
+                created = await client.post(
+                    "/v1/conversations",
+                    headers=authorization(token),
+                    json={},
+                )
+                conversation_id = created.json()["id"]
+                await service.reply(
+                    query="第一问",
+                    conversation_id=conversation_id,
+                )
+                meta = await client.get(
+                    f"/v1/conversations/{conversation_id}",
+                    headers=authorization(token),
+                )
+
+        assert meta.status_code == 200
+        assert "messages" not in meta.json()
+    finally:
+        await database.close()
+
+
+@pytest.mark.asyncio
+async def test_conversation_messages_pagination(tmp_path) -> None:
+    token = generate_startup_token()
+    database = Database(tmp_path / "conversation.sqlite3")
+    await database.connect()
+    await database.migrate()
+    try:
+        repository = ConversationRepository(database)
+        history = ConversationHistoryStore(database)
+        conversation = await repository.create(title="分页会话")
+        conversation_id = conversation.id
+        for index in range(55):
+            await history.append(
+                role="user" if index % 2 == 0 else "assistant",
+                content=f"消息{index}",
+                conversation_id=conversation_id,
+            )
+
+        service = _real_conversation_service(database, _reply_transport())
+        app = create_app(
+            config=SidecarConfig(bearer_token=token),
+            lifecycle=EmptyLifecycle(),
+            conversation_service=service,
+        )
+        async with app.router.lifespan_context(app):
+            async with AsyncClient(
+                transport=ASGITransport(app=app),
+                base_url="http://sidecar.test",
+            ) as client:
+                page1 = await client.get(
+                    f"/v1/conversations/{conversation_id}/messages",
+                    headers=authorization(token),
+                    params={"limit": 50},
+                )
+                assert page1.status_code == 200
+                body1 = page1.json()
+                assert len(body1["messages"]) == 50
+                assert body1["has_more"] is True
+                assert body1["next_cursor"] is not None
+
+                page2 = await client.get(
+                    f"/v1/conversations/{conversation_id}/messages",
+                    headers=authorization(token),
+                    params={"limit": 50, "cursor": body1["next_cursor"]},
+                )
+                assert page2.status_code == 200
+                body2 = page2.json()
+                assert len(body2["messages"]) == 5
+                assert body2["has_more"] is False
+                assert body2["next_cursor"] is None
+
+        contents = [
+            message["content"] for message in body1["messages"]
+        ] + [message["content"] for message in body2["messages"]]
+        assert len(set(contents)) == 55
+    finally:
+        await database.close()

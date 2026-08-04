@@ -35,6 +35,31 @@ function streamResponse(lines: string[]): Response {
 }
 
 describe("streamConversationReply", () => {
+  it("fires onAudio with the base64 payload from the SSE stream", async () => {
+    vi.mocked(invoke).mockResolvedValue(connection);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockResolvedValue(
+        streamResponse([
+          'data: {"type":"done","text":"完成"}',
+          'data: {"type":"audio","audio_base64":"QUJD"}',
+        ]),
+      ),
+    );
+
+    let audioBase64: string | null = null;
+    await streamConversationReply({
+      query: "q",
+      events: {
+        onAudio: (base64) => {
+          audioBase64 = base64;
+        },
+      },
+    });
+
+    expect(audioBase64).toBe("QUJD");
+  });
+
   it("fires onGenerationStarted with the generation_id on the first SSE event", async () => {
     vi.mocked(invoke).mockResolvedValue(connection);
     vi.stubGlobal(

@@ -14,6 +14,15 @@ class ConversationMessage:
     created_at: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class HistoryPage:
+    """A cursor-paginated page of a conversation's messages."""
+
+    messages: tuple[ConversationMessage, ...]
+    next_cursor: str | None
+    has_more: bool
+
+
 class ConversationHistoryStore:
     def __init__(self, database: Database) -> None:
         self._database = database
@@ -57,6 +66,63 @@ class ConversationHistoryStore:
             for row in reversed(rows)
         )
         return messages
+
+    async def list_messages(
+        self,
+        *,
+        conversation_id: str,
+        limit: int = 50,
+        before_id: int | None = None,
+    ) -> HistoryPage:
+        """Return a cursor-paginated page of a conversation's messages.
+
+        Messages are returned in chronological order (oldest first). ``before_id``
+        is an inclusive-exclusive cursor: when provided, only messages with an id
+        strictly smaller than it are returned, which lets callers page backwards
+        toward older messages. The returned ``next_cursor`` is the id of the
+        oldest message on the page, or ``None`` when there are no older messages.
+        """
+        if limit <= 0:
+            return HistoryPage(messages=(), next_cursor=None, has_more=False)
+        clauses = ["conversation_id = ?"]
+        params: list[object] = [conversation_id]
+        if before_id is not None:
+            clauses.append("id < ?")
+            params.append(before_id)
+        where = " AND ".join(clauses)
+        params.append(limit + 1)
+        async with self._database.transaction(immediate=False) as connection:
+            async with connection.execute(
+                f"""
+                SELECT
+                    id, role, content, citations, citation_urls, grounded, created_at
+                FROM conversation_messages
+                WHERE {where}
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                params,
+            ) as cursor:
+                rows = await cursor.fetchall()
+        has_more = len(rows) > limit
+        page_rows = rows[:limit]
+        messages = tuple(
+            ConversationMessage(
+                role=row["role"],
+                content=row["content"],
+                citations=_parse_citations(row["citations"]),
+                citation_urls=_parse_citation_urls(row["citation_urls"]),
+                grounded=bool(row["grounded"]),
+                created_at=row["created_at"],
+            )
+            for row in reversed(page_rows)
+        )
+        next_cursor = str(page_rows[-1]["id"]) if page_rows and has_more else None
+        return HistoryPage(
+            messages=messages,
+            next_cursor=next_cursor,
+            has_more=has_more,
+        )
 
     async def count(
         self,
@@ -112,16 +178,26 @@ class ConversationHistoryStore:
                 ),
             )
 
-    async def delete_last_assistant(self) -> bool:
+    async def delete_last_assistant(
+        self,
+        *,
+        conversation_id: str | None = None,
+    ) -> bool:
+        params: list[object] = []
+        where = "role = 'assistant'"
+        if conversation_id is not None:
+            where += " AND conversation_id = ?"
+            params.append(conversation_id)
         async with self._database.transaction() as connection:
             async with connection.execute(
-                """
+                f"""
                 SELECT id
                 FROM conversation_messages
-                WHERE role = 'assistant'
+                WHERE {where}
                 ORDER BY id DESC
                 LIMIT 1
-                """
+                """,
+                params,
             ) as cursor:
                 row = await cursor.fetchone()
             if row is None:

@@ -62,6 +62,7 @@ export interface BuildJobData {
   readonly error_detail: string | null;
   readonly cancelled: boolean;
   readonly digital_human_id: string | null;
+  readonly mode?: string;
   readonly created_at: string;
   readonly updated_at: string;
   readonly completed_at: string | null;
@@ -88,6 +89,12 @@ export interface ConversationMessageData {
   readonly citation_urls: readonly (string | null)[];
   readonly grounded: boolean;
   readonly created_at: string | null;
+}
+
+export interface ConversationMessagesData {
+  readonly messages: readonly ConversationMessageData[];
+  readonly next_cursor: string | null;
+  readonly has_more: boolean;
 }
 
 // --- Reply ------------------------------------------------------------------

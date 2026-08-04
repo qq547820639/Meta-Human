@@ -13,7 +13,7 @@ import {
   clearConversationMessages,
   createConversation,
   deleteConversation,
-  getConversation,
+  listConversationMessages,
   listConversations,
   renameConversation,
   searchConversations,
@@ -42,6 +42,7 @@ vi.mock("./conversationManagementClient", () => ({
   searchConversations: vi.fn(),
   createConversation: vi.fn(),
   getConversation: vi.fn(),
+  listConversationMessages: vi.fn(),
   renameConversation: vi.fn(),
   archiveConversation: vi.fn(),
   unarchiveConversation: vi.fn(),
@@ -161,17 +162,21 @@ describe("ConversationWorkspace", () => {
   });
 
   it("restores the most recent conversation on mount", async () => {
-    vi.mocked(getConversation).mockResolvedValue({
-      id: "conv-1",
-      name: "昨天的对话",
+    vi.mocked(listConversationMessages).mockResolvedValue({
       messages: [
         { role: "user", content: "昨天问过" },
         { role: "assistant", content: "昨天回答过", grounded: true },
       ],
+      nextCursor: null,
+      hasMore: false,
     });
 
     render(<ConversationWorkspace initialConversationId="conv-1" />);
 
+    expect(listConversationMessages).toHaveBeenCalledWith(
+      "conv-1",
+      expect.objectContaining({ limit: 50 }),
+    );
     await waitFor(() =>
       expect(screen.getByText("昨天问过")).toBeInTheDocument(),
     );
@@ -179,13 +184,13 @@ describe("ConversationWorkspace", () => {
   });
 
   it("clears old messages when a new conversation is created", async () => {
-    vi.mocked(getConversation).mockResolvedValue({
-      id: "conv-1",
-      name: "旧对话",
+    vi.mocked(listConversationMessages).mockResolvedValue({
       messages: [
         { role: "user", content: "旧问题" },
         { role: "assistant", content: "旧回答" },
       ],
+      nextCursor: null,
+      hasMore: false,
     });
     vi.mocked(createConversation).mockResolvedValue({
       id: "conv-2",
@@ -247,9 +252,8 @@ describe("ConversationWorkspace", () => {
     );
   });
 
-  it("keeps the text and reports TTS failure when TTS fails", async () => {
+  it("keeps the text when the stream completes without audio", async () => {
     const capture = captureStream();
-    vi.mocked(postConversationReply).mockRejectedValue(new Error("TTS failed"));
 
     render(<ConversationWorkspace />);
     fireEvent.change(screen.getByLabelText("问题"), {
@@ -263,21 +267,14 @@ describe("ConversationWorkspace", () => {
     await waitFor(() =>
       expect(screen.getByText("完整回答。")).toBeInTheDocument(),
     );
-    await waitFor(() =>
-      expect(
-        screen.getByText("语音生成失败，已保留文字回答。"),
-      ).toBeInTheDocument(),
-    );
+    expect(
+      screen.queryByText("语音生成失败，已保留文字回答。"),
+    ).not.toBeInTheDocument();
+    expect(postConversationReply).not.toHaveBeenCalled();
   });
 
   it("plays audio and reports avatar unavailability when the avatar stream fails", async () => {
     const capture = captureStream();
-    vi.mocked(postConversationReply).mockResolvedValue({
-      text: "回答。",
-      citations: [],
-      grounded: false,
-      audioBase64: "QUJD",
-    });
 
     const { container } = render(
       <ConversationWorkspace
@@ -292,6 +289,7 @@ describe("ConversationWorkspace", () => {
 
     capture.events.onToken?.("回答。");
     capture.events.onDone?.("回答。");
+    capture.events.onAudio?.("QUJD");
 
     await waitFor(() =>
       expect(container.querySelector("audio")).not.toBeNull(),
@@ -307,6 +305,50 @@ describe("ConversationWorkspace", () => {
       ).toBeInTheDocument(),
     );
     expect(container.querySelector("audio")).not.toBeNull();
+  });
+
+  it("consumes audio from the stream and never calls the non-streaming reply endpoint", async () => {
+    const capture = captureStream();
+    const { container } = render(<ConversationWorkspace />);
+    fireEvent.change(screen.getByLabelText("问题"), {
+      target: { value: "你好" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+
+    capture.events.onToken?.("回答。");
+    capture.events.onDone?.("回答。");
+    capture.events.onAudio?.("QUJD");
+
+    await waitFor(() =>
+      expect(container.querySelector("audio")).not.toBeNull(),
+    );
+    expect(postConversationReply).not.toHaveBeenCalled();
+  });
+
+  it("ignores audio and keeps no auto-play after generation is stopped", async () => {
+    const capture: { events: ConversationStreamEvents } = { events: {} };
+    vi.mocked(streamConversationReply).mockImplementation(
+      async ({ events: nextEvents }) => {
+        capture.events = nextEvents ?? {};
+        await new Promise<void>(() => undefined);
+      },
+    );
+    vi.mocked(stopGenerating).mockResolvedValue(true);
+
+    const { container } = render(<ConversationWorkspace />);
+    fireEvent.change(screen.getByLabelText("问题"), {
+      target: { value: "你好" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+
+    capture.events.onGenerationStarted?.("gen-abc");
+    capture.events.onToken?.("部分。");
+    fireEvent.click(screen.getByRole("button", { name: "停止生成" }));
+
+    act(() => capture.events.onAudio?.("QUJD"));
+
+    expect(container.querySelector("audio")).toBeNull();
+    expect(postConversationReply).not.toHaveBeenCalled();
   });
 
   it("copies a single question, a single reply and the full transcript", async () => {
@@ -553,4 +595,55 @@ describe("ConversationWorkspace", () => {
       expect(clipboardWriteText).toHaveBeenCalledWith("req-123"),
     );
   });
+
+  it("safely stops in-flight generation, audio and the avatar stream when the digital human changes", async () => {
+    const capture: { events: ConversationStreamEvents } = { events: {} };
+    vi.mocked(streamConversationReply).mockImplementation(
+      async ({ events }) => {
+        capture.events = events ?? {};
+        await new Promise<void>(() => undefined);
+      },
+    );
+
+    const { container, rerender } = render(
+      <ConversationWorkspace humanId="human-1" />,
+    );
+
+    // Start a generation for the first human and attach audio + avatar stream.
+    fireEvent.change(screen.getByLabelText("问题"), {
+      target: { value: "你好" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+    capture.events.onToken?.("正在生成。");
+    capture.events.onDone?.("正在生成。");
+    capture.events.onAudio?.("QUJD");
+    await waitFor(() =>
+      expect(container.querySelector("audio")).not.toBeNull(),
+    );
+
+    const video = document.createElement("video");
+    video.className = "conversation-avatar-stream";
+    video.src = "https://gpu.example.com/live/stream-1";
+    container.appendChild(video);
+    const pauseSpy = vi.spyOn(video, "pause");
+
+    // Switch to a different digital human.
+    rerender(<ConversationWorkspace humanId="human-2" />);
+
+    // Old generation is aborted, audio detached, video stream paused.
+    expect(abortCalls()).toBeGreaterThan(0);
+    expect(container.querySelector("audio")?.getAttribute("src")).toBeNull();
+    expect(container.querySelector("audio")?.paused).toBe(true);
+    expect(video.paused).toBe(true);
+    expect(pauseSpy).toHaveBeenCalled();
+    expect(screen.queryByText("正在生成。")).toBeInTheDocument();
+  });
 });
+
+function abortCalls() {
+  // streamConversationReply is mocked; the abort is signalled via the
+  // AbortController passed to it. We assert the controller was aborted by
+  // capturing it in the mock.
+  const lastCall = vi.mocked(streamConversationReply).mock.calls.at(-1);
+  return lastCall?.[0]?.signal?.aborted ? 1 : 0;
+}

@@ -166,6 +166,7 @@ export interface ConversationStreamEvents {
   readonly onToken?: (text: string) => void;
   readonly onCitations?: (citations: Citation[], grounded: boolean) => void;
   readonly onDone?: (text: string) => void;
+  readonly onAudio?: (audioBase64: string) => void;
   readonly onError?: (message: string, retryable: boolean) => void;
 }
 
@@ -300,6 +301,12 @@ function handleStreamLine(
     case "done": {
       if (typeof parsed.text === "string") {
         events?.onDone?.(parsed.text);
+      }
+      break;
+    }
+    case "audio": {
+      if (typeof parsed.audio_base64 === "string") {
+        events?.onAudio?.(parsed.audio_base64);
       }
       break;
     }

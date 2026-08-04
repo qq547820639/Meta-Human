@@ -11,6 +11,7 @@ from voxstudio_core.persistence.build_job_repository import BuildJobRepository
 from voxstudio_core.persistence.database import Database
 from voxstudio_core.persistence.digital_human_repository import (
     DigitalHumanRepository,
+    DigitalHumanStatus,
 )
 from voxstudio_core.providers.build_job_service import BuildJobService
 from voxstudio_core.providers.remote_gpu import AvatarStream
@@ -43,6 +44,19 @@ class StubRemoteClient:
 
     async def stop_avatar_stream(self, *, session_id: str) -> None:
         self.stopped.append(session_id)
+
+
+class FailingEnrollRemoteClient(StubRemoteClient):
+    """Enrollment (rebuild/copy) fails so the original human must stay intact."""
+
+    def __init__(self, *, fail_voice: bool = True) -> None:
+        super().__init__()
+        self.fail_voice = fail_voice
+
+    async def enroll_voice(self, *, audio: bytes) -> str:
+        if self.fail_voice:
+            raise RuntimeError("voice enrollment failed")
+        return await super().enroll_voice(audio=audio)
 
 
 class EmptyLifecycle:
@@ -260,3 +274,199 @@ async def test_avatar_routes_require_bearer_token(tmp_path: Path) -> None:
 
     assert listing.status_code == 401
     assert default.status_code == 401
+
+
+async def _wait_for_terminal(client: AsyncClient, token: str, job_id: str) -> dict:
+    for _ in range(200):
+        response = await client.get(
+            f"/v1/avatar/jobs/{job_id}",
+            headers=authorization(token),
+        )
+        body = response.json()
+        if body["status"] in ("succeeded", "failed", "cancelled"):
+            return body
+    raise AssertionError(f"job {job_id} did not reach a terminal state")
+
+
+@pytest.mark.asyncio
+async def test_rebuild_updates_same_record_and_keeps_default(tmp_path: Path) -> None:
+    """A 'rebuild' job commits new remote ids to the SAME digital human record
+    and preserves the default flag."""
+    token = generate_startup_token()
+    database = Database(tmp_path / "avatar.sqlite3")
+    await database.connect()
+    await database.migrate()
+    humans = DigitalHumanRepository(database)
+    remote = StubRemoteClient()
+    build_jobs = BuildJobService(
+        repository=BuildJobRepository(database),
+        digital_humans=humans,
+        client=remote,
+    )
+    portrait = tmp_path / "p.jpg"
+    recording = tmp_path / "v.wav"
+    portrait.write_bytes(b"img")
+    recording.write_bytes(b"aud")
+    try:
+        async with running_client(
+            token, database, build_jobs, humans, remote
+        ) as client:
+            original = await humans.create(name="Alice")
+            await humans.set_default(original.id)
+            await humans.update_status(
+                original.id,
+                status=DigitalHumanStatus.READY,
+                voice_id="old-voice",
+                avatar_id="old-avatar",
+            )
+            job = await client.post(
+                "/v1/avatar/jobs",
+                headers=authorization(token),
+                json={
+                    "portrait_path": str(portrait),
+                    "recording_path": str(recording),
+                    "digital_human_id": original.id,
+                    "mode": "rebuild",
+                },
+            )
+            assert job.status_code == 202
+            job_id = job.json()["id"]
+            terminal = await _wait_for_terminal(client, token, job_id)
+
+            updated = await humans.get(original.id)
+            humans_list = await humans.list()
+    finally:
+        await database.close()
+
+    assert terminal["status"] == "succeeded"
+    assert terminal["mode"] == "rebuild"
+    # Same record, new remote ids, default preserved, original name kept.
+    assert updated.id == original.id
+    assert updated.name == "Alice"
+    assert updated.voice_id == "voice-1"
+    assert updated.avatar_id == "avatar-1"
+    assert updated.is_default is True
+    # Only one record exists — rebuild did not create a duplicate.
+    assert [h.id for h in humans_list] == [original.id]
+
+
+@pytest.mark.asyncio
+async def test_rebuild_failure_retains_original_version(tmp_path: Path) -> None:
+    """If a rebuild fails, the original available version must be preserved."""
+    token = generate_startup_token()
+    database = Database(tmp_path / "avatar.sqlite3")
+    await database.connect()
+    await database.migrate()
+    humans = DigitalHumanRepository(database)
+    remote = FailingEnrollRemoteClient()
+    build_jobs = BuildJobService(
+        repository=BuildJobRepository(database),
+        digital_humans=humans,
+        client=remote,
+    )
+    portrait = tmp_path / "p.jpg"
+    recording = tmp_path / "v.wav"
+    portrait.write_bytes(b"img")
+    recording.write_bytes(b"aud")
+    try:
+        async with running_client(
+            token, database, build_jobs, humans, remote
+        ) as client:
+            original = await humans.create(name="Bob")
+            await humans.set_default(original.id)
+            await humans.update_status(
+                original.id,
+                status=DigitalHumanStatus.READY,
+                voice_id="original-voice",
+                avatar_id="original-avatar",
+            )
+            job = await client.post(
+                "/v1/avatar/jobs",
+                headers=authorization(token),
+                json={
+                    "portrait_path": str(portrait),
+                    "recording_path": str(recording),
+                    "digital_human_id": original.id,
+                    "mode": "rebuild",
+                },
+            )
+            assert job.status_code == 202
+            job_id = job.json()["id"]
+            terminal = await _wait_for_terminal(client, token, job_id)
+
+            preserved = await humans.get(original.id)
+    finally:
+        await database.close()
+
+    assert terminal["status"] == "failed"
+    # The original ready version is untouched.
+    assert preserved.id == original.id
+    assert preserved.creation_status == DigitalHumanStatus.READY
+    assert preserved.voice_id == "original-voice"
+    assert preserved.avatar_id == "original-avatar"
+    assert preserved.is_default is True
+
+
+@pytest.mark.asyncio
+async def test_copy_creates_new_record_from_job_materials(tmp_path: Path) -> None:
+    """A 'copy' job creates a NEW digital human record without touching the
+    source record."""
+    token = generate_startup_token()
+    database = Database(tmp_path / "avatar.sqlite3")
+    await database.connect()
+    await database.migrate()
+    humans = DigitalHumanRepository(database)
+    remote = StubRemoteClient()
+    build_jobs = BuildJobService(
+        repository=BuildJobRepository(database),
+        digital_humans=humans,
+        client=remote,
+    )
+    portrait = tmp_path / "p.jpg"
+    recording = tmp_path / "v.wav"
+    portrait.write_bytes(b"img")
+    recording.write_bytes(b"aud")
+    try:
+        async with running_client(
+            token, database, build_jobs, humans, remote
+        ) as client:
+            source = await humans.create(name="Carol")
+            await humans.set_default(source.id)
+            await humans.update_status(
+                source.id,
+                status=DigitalHumanStatus.READY,
+                voice_id="source-voice",
+                avatar_id="source-avatar",
+            )
+            job = await client.post(
+                "/v1/avatar/jobs",
+                headers=authorization(token),
+                json={
+                    "portrait_path": str(portrait),
+                    "recording_path": str(recording),
+                    "digital_human_id": source.id,
+                    "mode": "copy",
+                },
+            )
+            assert job.status_code == 202
+            job_id = job.json()["id"]
+            terminal = await _wait_for_terminal(client, token, job_id)
+
+            source_after = await humans.get(source.id)
+            humans_list = await humans.list()
+            copies = [h for h in humans_list if h.id != source.id]
+    finally:
+        await database.close()
+
+    assert terminal["status"] == "succeeded"
+    assert terminal["mode"] == "copy"
+    # Source unchanged; a new copy record exists with the staged remote ids.
+    assert source_after.voice_id == "source-voice"
+    assert source_after.avatar_id == "source-avatar"
+    assert source_after.is_default is True
+    assert len(copies) == 1
+    copy_record = copies[0]
+    assert copy_record.name == "Carol（副本）"
+    assert copy_record.voice_id == "voice-1"
+    assert copy_record.avatar_id == "avatar-1"
+    assert copy_record.is_default is False

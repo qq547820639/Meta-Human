@@ -140,7 +140,9 @@ describe("DigitalHumanManagement", () => {
       ),
     );
     expect(setDefaultHuman).toHaveBeenCalledWith("human-2");
-    expect(onSelectHuman).toHaveBeenCalledWith("human-2");
+    expect(onSelectHuman).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "human-2" }),
+    );
   });
 
   it("renames a digital human", async () => {

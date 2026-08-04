@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Response, status
+from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from voxstudio_core.persistence.build_job_repository import (
@@ -25,6 +26,7 @@ class BuildJobRequest(BaseModel):
     recording_path: str = Field(min_length=1)
     idempotency_key: str | None = Field(default=None, max_length=128)
     digital_human_id: str | None = None
+    mode: Literal["new", "rebuild", "copy"] = "new"
 
 
 class BuildJobResponse(BaseModel):
@@ -40,6 +42,7 @@ class BuildJobResponse(BaseModel):
     error_detail: str | None = None
     cancelled: bool
     digital_human_id: str | None = None
+    mode: str = "new"
     created_at: str
     updated_at: str
     completed_at: str | None = None
@@ -105,6 +108,7 @@ def create_avatar_router(
             recording_path=payload.recording_path,
             idempotency_key=payload.idempotency_key,
             digital_human_id=payload.digital_human_id,
+            mode=payload.mode,
         )
         return _build_job_response(job)
 
@@ -338,6 +342,7 @@ def _build_job_response(job: BuildJob) -> BuildJobResponse:
         error_detail=job.error_detail,
         cancelled=job.cancelled,
         digital_human_id=job.digital_human_id,
+        mode=job.mode,
         created_at=job.created_at.isoformat(),
         updated_at=job.updated_at.isoformat(),
         completed_at=(

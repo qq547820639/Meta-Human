@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 
+import type { DigitalHumanData } from "./api/contracts";
 import ConversationWorkspace from "./features/conversation/ConversationWorkspace";
-import CreationFlow from "./features/creation/CreationFlow";
+import CreationFlow, { type CreationMode } from "./features/creation/CreationFlow";
 import DigitalHumanManagement from "./features/manage/DigitalHumanManagement";
 import ReadinessGate from "./features/readiness/ReadinessGate";
 import Settings from "./features/settings/Settings";
@@ -9,8 +10,21 @@ import { useReadiness } from "./features/readiness/useReadiness";
 import BuildRecoveryCard from "./features/restore/BuildRecoveryCard";
 import { isHumanReady } from "./features/restore/restoreClient";
 import { useRestoreState } from "./features/restore/useRestoreState";
+import {
+  DigitalHumanSelectionProvider,
+  selectionFromHuman,
+  useDigitalHumanSelection,
+} from "./features/human/DigitalHumanSelectionContext";
 
 export default function App() {
+  return (
+    <DigitalHumanSelectionProvider>
+      <AppInner />
+    </DigitalHumanSelectionProvider>
+  );
+}
+
+function AppInner() {
   const {
     snapshot,
     error,
@@ -19,11 +33,14 @@ export default function App() {
     resume,
   } = useReadiness();
   const restore = useRestoreState();
+  const selection = useDigitalHumanSelection();
   const [creationRequested, setCreationRequested] = useState(false);
   const [conversationStarted, setConversationStarted] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [manageOpen, setManageOpen] = useState(false);
-  const [selectedHumanId, setSelectedHumanId] = useState<string | null>(null);
+  const [creationMode, setCreationMode] = useState<CreationMode>("new");
+  const [rebuildSource, setRebuildSource] =
+    useState<DigitalHumanData | null>(null);
   const [restored, setRestored] = useState(false);
   const canRestore = isHumanReady(restore.defaultHuman) && !restore.isLoading;
 
@@ -32,6 +49,27 @@ export default function App() {
       setRestored(true);
     }
   }, [canRestore, restored]);
+
+  // Hydrate the shared selection source from the restored default digital
+  // human so startup recovery, the conversation page and the management page
+  // all observe the same value.
+  useEffect(() => {
+    if (
+      canRestore &&
+      restore.defaultHuman !== null &&
+      selection.selectedHumanId === null
+    ) {
+      selection.selectHuman({
+        id: restore.defaultHuman.id,
+        name: restore.defaultHuman.name,
+        portraitPath: restore.defaultHuman.portraitPath ?? null,
+        streamUrl: null,
+        avatarId: null,
+        voiceId: null,
+      });
+    }
+  }, [canRestore, restore.defaultHuman, selection, selection.selectedHumanId]);
+
   const needsUserHelp =
     snapshot !== null &&
     !snapshot.canCreate &&
@@ -59,14 +97,22 @@ export default function App() {
     : creationRequested
       ? conversationStarted
         ? "与你的数字人对话"
-        : "塑造你的数字人"
+        : creationMode === "rebuild"
+          ? "重新构建你的数字人"
+          : creationMode === "copy"
+            ? "复制你的数字人"
+            : "塑造你的数字人"
       : "正在准备工作室";
   const lead = restored
     ? "你的数字人已经准备好，继续聊下去吧。"
     : creationRequested
       ? conversationStarted
         ? "你的数字人已经准备好，继续聊下去吧。"
-        : "用一张照片和一段声音，准备第一次自然的回应。"
+        : creationMode === "rebuild"
+          ? "用新的照片和声音，重新塑造你的数字人。"
+          : creationMode === "copy"
+            ? "基于现有数字人，创建一份新的副本。"
+            : "用一张照片和一段声音，准备第一次自然的回应。"
       : "我们先安静地确认对话、声音与知识，让第一次见面真正自然。";
   const assurance = restored
     ? "对话与记忆只保存在这台电脑上。"
@@ -109,8 +155,22 @@ export default function App() {
 
         {manageOpen ? (
           <DigitalHumanManagement
-            onSelectHuman={setSelectedHumanId}
-            onRebuild={() => {
+            onSelectHuman={(human) => {
+              if (human === null) {
+                selection.clearSelection();
+              } else {
+                selection.selectHuman(selectionFromHuman(human));
+              }
+            }}
+            onRebuild={(human) => {
+              setRebuildSource(human);
+              setCreationMode("rebuild");
+              setManageOpen(false);
+              setCreationRequested(true);
+            }}
+            onCopy={(human) => {
+              setRebuildSource(human);
+              setCreationMode("copy");
               setManageOpen(false);
               setCreationRequested(true);
             }}
@@ -132,7 +192,13 @@ export default function App() {
 
         {!settingsOpen && !manageOpen && restored ? (
           <ConversationWorkspace
-            portraitPath={restore.defaultHuman?.portraitPath ?? null}
+            portraitPath={
+              selection.selected.portraitPath ??
+              restore.defaultHuman?.portraitPath ??
+              null
+            }
+            humanName={selection.selected.name}
+            humanId={selection.selected.id}
             initialConversationId={restore.recentConversation?.id ?? null}
           />
         ) : null}
@@ -183,7 +249,13 @@ export default function App() {
 
         {!settingsOpen && !manageOpen && creationRequested && !restored ? (
           <CreationFlow
-            onBack={() => setCreationRequested(false)}
+            mode={creationMode}
+            rebuildSource={rebuildSource}
+            onBack={() => {
+              setCreationRequested(false);
+              setRebuildSource(null);
+              setCreationMode("new");
+            }}
             onConversationStarted={() => setConversationStarted(true)}
           />
         ) : null}

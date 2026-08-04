@@ -92,6 +92,12 @@
   font-size: 0.875rem;
 }
 
+.build-recovery-retrying {
+  margin: 0.75rem 0 0;
+  color: var(--studio-attention, #ffb86b);
+  font-size: 0.875rem;
+}
+
 .build-recovery-actions {
   display: flex;
   flex-wrap: wrap;

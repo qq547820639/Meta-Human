@@ -34,10 +34,16 @@ import {
  */
 
 export interface DigitalHumanManagementProps {
-  /** Fired with the selected digital human id when the default is switched. */
-  readonly onSelectHuman?: (humanId: string) => void;
+  /**
+   * Fired with the full digital human when the default is switched, or with
+   * `null` when the default was deleted. The parent uses it to refresh the
+   * shared selection source.
+   */
+  readonly onSelectHuman?: (human: DigitalHumanData | null) => void;
   /** Fired when the user asks to rebuild (re-record voice / re-create avatar). */
   readonly onRebuild?: (human: DigitalHumanData) => void;
+  /** Fired when the user asks to copy a digital human into a new record. */
+  readonly onCopy?: (human: DigitalHumanData) => void;
 }
 
 /** Outcome of the remote-resource part of a delete. */
@@ -175,6 +181,7 @@ function creationStatusLabel(status: string): string {
 export default function DigitalHumanManagement({
   onSelectHuman,
   onRebuild,
+  onCopy,
 }: DigitalHumanManagementProps) {
   const [humans, setHumans] = useState<DigitalHumanData[]>([]);
   const [recentJob, setRecentJob] = useState<BuildJobData | null>(null);
@@ -231,7 +238,7 @@ export default function DigitalHumanManagement({
         list.map((item) => ({ ...item, is_default: item.id === updated.id })),
       );
       setStatus(`已设为默认数字人：${updated.name}`);
-      onSelectHuman?.(updated.id);
+      onSelectHuman?.(updated);
     } catch (err) {
       setError(describeError(err));
     } finally {
@@ -282,7 +289,7 @@ export default function DigitalHumanManagement({
         const wasDefault = deleteTarget.is_default;
         setHumans((list) => list.filter((item) => item.id !== deleteTarget.id));
         if (wasDefault) {
-          onSelectHuman?.("");
+          onSelectHuman?.(null);
         }
       }
     } catch (err) {
@@ -431,6 +438,14 @@ export default function DigitalHumanManagement({
                     disabled={isBusy}
                   >
                     重新构建
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => onCopy?.(human)}
+                    disabled={isBusy}
+                  >
+                    复制
                   </button>
 
                   <button

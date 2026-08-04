@@ -85,7 +85,7 @@ describe("BuildRecoveryCard", () => {
     );
 
     render(<BuildRecoveryCard job={runningJob} />);
-    fireEvent.click(screen.getByRole("button", { name: "取消" }));
+    fireEvent.click(screen.getByRole("button", { name: "取消任务" }));
 
     await waitFor(() =>
       expect(cancelBuildJob).toHaveBeenCalledWith("job-1"),
