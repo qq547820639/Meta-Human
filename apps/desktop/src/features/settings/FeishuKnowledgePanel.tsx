@@ -74,6 +74,13 @@ function freshnessLabel(freshness: string | undefined): string {
   }
 }
 
+function lastSyncLabel(syncedAt: string | null | undefined): string {
+  if (!syncedAt) return "尚未同步";
+  const date = new Date(syncedAt);
+  if (Number.isNaN(date.getTime())) return syncedAt;
+  return date.toLocaleString();
+}
+
 function stepLabel(step: FeishuVerifyStep): string {
   switch (step.status) {
     case "pass":
@@ -304,6 +311,7 @@ export default function FeishuKnowledgePanel({
               {source.title} · {source.chunkCount} 段
               <span>状态：{statusLabel(source)}</span>
               <span>新鲜度：{freshnessLabel(source.freshness)}</span>
+              <span>最后同步：{lastSyncLabel(source.syncedAt)}</span>
               {source.lastError ? (
                 <span className="knowledge-source-error">{source.lastError}</span>
               ) : null}

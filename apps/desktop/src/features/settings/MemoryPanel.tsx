@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import SettingsPanel from "./SettingsPanel";
+import ConfirmDialog from "../../ui/ConfirmDialog";
 import {
   MEMORY_SOURCES,
   MEMORY_TYPES,
@@ -19,6 +20,7 @@ import {
   permanentDeleteMemoryEntry,
   updateMemoryEntry,
 } from "../memory/memoryClient";
+import { SourceMessage, getSourceMessage } from "../conversation/conversationClient";
 
 interface MemoryPanelProps {
   readonly setStatus: (value: string | null) => void;
@@ -45,7 +47,13 @@ export default function MemoryPanel({ setStatus, setError }: MemoryPanelProps) {
   const [confirmingMemoryId, setConfirmingMemoryId] = useState<string | null>(
     null,
   );
+  const [confirmingPermanentId, setConfirmingPermanentId] = useState<
+    string | null
+  >(null);
   const [confirmingMemoryClear, setConfirmingMemoryClear] = useState(false);
+  const [sourceMessageId, setSourceMessageId] = useState<string | null>(null);
+  const [sourceMessage, setSourceMessage] = useState<SourceMessage | null>(null);
+  const [sourceError, setSourceError] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -170,9 +178,8 @@ export default function MemoryPanel({ setStatus, setError }: MemoryPanelProps) {
   }
 
   async function handlePermanentDelete(entry: MemoryEntry) {
-    if (confirmingMemoryId !== entry.id) {
-      setConfirmingMemoryId(entry.id);
-      window.setTimeout(() => setConfirmingMemoryId(null), 3000);
+    if (confirmingPermanentId !== entry.id) {
+      setConfirmingPermanentId(entry.id);
       return;
     }
     setMemoryError(null);
@@ -181,7 +188,7 @@ export default function MemoryPanel({ setStatus, setError }: MemoryPanelProps) {
       setMemoryEntries((entries) =>
         entries.filter((item) => item.id !== entry.id),
       );
-      setConfirmingMemoryId(null);
+      setConfirmingPermanentId(null);
       setStatus(
         result.verified
           ? "该记忆已彻底删除，并已确认从数据库中移除。"
@@ -233,10 +240,30 @@ export default function MemoryPanel({ setStatus, setError }: MemoryPanelProps) {
     }
   }
 
+  async function handleViewSource(entry: MemoryEntry) {
+    if (!entry.source_message_id) {
+      setStatus("该记忆没有关联的来源消息。");
+      return;
+    }
+    setMemoryError(null);
+    setSourceError(null);
+    const messageId = Number(entry.source_message_id);
+    if (!Number.isInteger(messageId)) {
+      setSourceError("来源消息编号无效。");
+      return;
+    }
+    try {
+      const message = await getSourceMessage(messageId);
+      setSourceMessageId(entry.id);
+      setSourceMessage(message);
+    } catch {
+      setSourceError("无法读取来源消息。");
+    }
+  }
+
   async function handleClearMemory() {
     if (!confirmingMemoryClear) {
       setConfirmingMemoryClear(true);
-      window.setTimeout(() => setConfirmingMemoryClear(false), 3000);
       return;
     }
     setMemoryError(null);
@@ -364,20 +391,42 @@ export default function MemoryPanel({ setStatus, setError }: MemoryPanelProps) {
                 type="button"
                 onClick={() => void handlePermanentDelete(entry)}
               >
-                {confirmingMemoryId === entry.id ? "确认彻底删除？" : "彻底删除"}
+                彻底删除
               </button>
               <button
                 type="button"
                 onClick={() => void handleDeleteMemory(entry)}
               >
-                {confirmingMemoryId === entry.id ? "确认删除？" : "删除"}
+                删除
               </button>
+              <button
+                type="button"
+                onClick={() => void handleViewSource(entry)}
+                disabled={!entry.source_message_id}
+              >
+                查看来源
+              </button>
+              {sourceError ? <p role="alert">{sourceError}</p> : null}
+              {sourceMessageId === entry.id && sourceMessage ? (
+                <div>
+                  <p>
+                    来源消息（{sourceMessage.role === "user" ? "用户" : "助手"}
+                    {sourceMessage.createdAt
+                      ? ` · ${formatTime(sourceMessage.createdAt)}`
+                      : ""}）
+                  </p>
+                  <p>{sourceMessage.content ?? "（无内容）"}</p>
+                </div>
+              ) : null}
             </li>
           ))}
         </ul>
       )}
-      <button type="button" onClick={() => void handleClearMemory()}>
-        {confirmingMemoryClear ? "确认清空记忆？" : "清空记忆"}
+      <button
+        type="button"
+        onClick={() => void handleClearMemory()}
+      >
+        清空记忆
       </button>
       {ignoreRules.length > 0 ? (
         <div>
@@ -403,6 +452,75 @@ export default function MemoryPanel({ setStatus, setError }: MemoryPanelProps) {
           <p>{privacyStatement}</p>
         </details>
       ) : null}
+      {(() => {
+        const deleteTarget = memoryEntries.find(
+          (entry) => entry.id === confirmingMemoryId,
+        );
+        return (
+          <ConfirmDialog
+            open={deleteTarget != null}
+            title="删除记忆"
+            titleId="delete-memory-dialog-title"
+            onClose={() => setConfirmingMemoryId(null)}
+          >
+            <p>确认删除该记忆？此操作不可撤销。</p>
+            <button type="button" onClick={() => setConfirmingMemoryId(null)}>
+              取消
+            </button>
+            {deleteTarget ? (
+              <button
+                type="button"
+                onClick={() => void handleDeleteMemory(deleteTarget)}
+              >
+                确认删除
+              </button>
+            ) : null}
+          </ConfirmDialog>
+        );
+      })()}
+      {(() => {
+        const permanentTarget = memoryEntries.find(
+          (entry) => entry.id === confirmingPermanentId,
+        );
+        return (
+          <ConfirmDialog
+            open={permanentTarget != null}
+            title="彻底删除记忆"
+            titleId="permanent-delete-memory-dialog-title"
+            onClose={() => setConfirmingPermanentId(null)}
+          >
+            <p>确认彻底删除该记忆？将从数据库中移除且无法恢复。</p>
+            <button
+              type="button"
+              onClick={() => setConfirmingPermanentId(null)}
+            >
+              取消
+            </button>
+            {permanentTarget ? (
+              <button
+                type="button"
+                onClick={() => void handlePermanentDelete(permanentTarget)}
+              >
+                确认彻底删除
+              </button>
+            ) : null}
+          </ConfirmDialog>
+        );
+      })()}
+      <ConfirmDialog
+        open={confirmingMemoryClear}
+        title="清空记忆"
+        titleId="clear-memory-dialog-title"
+        onClose={() => setConfirmingMemoryClear(false)}
+      >
+        <p>确认清空全部长期记忆？此操作不可撤销。</p>
+        <button type="button" onClick={() => setConfirmingMemoryClear(false)}>
+          取消
+        </button>
+        <button type="button" onClick={() => void handleClearMemory()}>
+          清空
+        </button>
+      </ConfirmDialog>
     </SettingsPanel>
   );
 }

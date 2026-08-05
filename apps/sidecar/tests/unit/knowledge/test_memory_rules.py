@@ -118,7 +118,10 @@ def test_needs_confirmation(rules: MemoryRuleService) -> None:
 def test_source_for_distinguishes_user_vs_system(rules: MemoryRuleService) -> None:
     assert rules.source_for("请记住我的生日", MEMORY_TYPE_EXPLICIT_REQUEST) == "user"
     assert rules.source_for("请记住我喜欢咖啡", MEMORY_TYPE_PREFERENCE) == "user"
-    assert rules.source_for("please remember my birthday", MEMORY_TYPE_USER_FACT) == "user"
+    assert (
+        rules.source_for("please remember my birthday", MEMORY_TYPE_USER_FACT)
+        == "user"
+    )
     # A plain auto-summarised preference is a system memory.
     assert rules.source_for("用户喜欢咖啡", MEMORY_TYPE_PREFERENCE) == "system"
     assert rules.source_for("用户的名字叫小明", MEMORY_TYPE_USER_FACT) == "system"
@@ -136,3 +139,38 @@ def test_is_duplicate_detects_near_identical(rules: MemoryRuleService) -> None:
 def test_mask_sensitive_hides_content(rules: MemoryRuleService) -> None:
     assert "银行卡" not in rules.mask_sensitive("我的银行卡密码是123456")
     assert rules.mask_sensitive("   ") == "   "
+
+
+def test_should_persist_rejects_sensitive_patterns(rules: MemoryRuleService) -> None:
+    # Passwords / tokens / credentials embedded in content are never persisted.
+    assert rules.should_persist("我的电脑密码是 hunter2", sensitive=False) is False
+    assert rules.should_persist("access_token: abc123xyz", sensitive=False) is False
+    assert rules.should_persist("api_key 8f3a9c2e1b7d", sensitive=False) is False
+    # ID-card / phone / generic secret phrasing are also rejected.
+    assert rules.should_persist("身份证号 110101199003077891", sensitive=False) is False
+    assert rules.should_persist("我的手机号是 13812345678", sensitive=False) is False
+    assert (
+        rules.should_persist("我的银行卡号是 6222020200112233445", sensitive=False)
+        is False
+    )
+    # Ordinary content is still persisted.
+    assert rules.should_persist("用户喜欢在早上喝咖啡", sensitive=False) is True
+
+
+def test_is_sensitive_detects_embedded_secrets(rules: MemoryRuleService) -> None:
+    assert rules.is_sensitive("密码：abc123") is True
+    assert rules.is_sensitive("token=eyJhbGciOi") is True
+    assert rules.is_sensitive("普通的生活习惯描述") is False
+
+
+def test_sensitive_patterns_are_user_configurable() -> None:
+    import re
+
+    custom = MemoryRuleService(
+        sensitive_patterns=[re.compile(r"公司机密|内部编号\d+")]
+    )
+    # Custom pattern governs; a default (password) pattern is no longer active.
+    assert custom.is_sensitive("内部编号8842") is True
+    assert custom.is_sensitive("我的电脑密码是 hunter2") is False
+    assert custom.should_persist("内部编号8842", sensitive=False) is False
+    assert custom.should_persist("我的电脑密码是 hunter2", sensitive=False) is True

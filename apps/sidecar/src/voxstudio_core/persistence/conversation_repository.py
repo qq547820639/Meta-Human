@@ -23,6 +23,7 @@ class Conversation:
     archived: bool
     deleted: bool
     summary: str | None
+    is_temporary: bool = False
 
 
 class ConversationNotFoundError(LookupError):
@@ -47,8 +48,8 @@ class ConversationRepository:
                 """
                 INSERT INTO conversations (
                     id, title, avatar_id, created_at, updated_at,
-                    last_message_at, archived, deleted, summary
-                ) VALUES (?, ?, ?, ?, ?, NULL, 0, 0, NULL)
+                    last_message_at, archived, deleted, summary, is_temporary
+                ) VALUES (?, ?, ?, ?, ?, NULL, 0, 0, NULL, 0)
                 """,
                 (
                     resolved_id,
@@ -236,6 +237,30 @@ class ConversationRepository:
             if cursor.rowcount != 1:
                 raise ConversationNotFoundError(conversation_id)
 
+    async def set_temporary(
+        self,
+        conversation_id: str,
+        *,
+        is_temporary: bool,
+    ) -> Conversation:
+        """Mark a conversation as temporary (no long-term memory writes)."""
+        async with self._database.transaction() as connection:
+            cursor = await connection.execute(
+                """
+                UPDATE conversations
+                SET is_temporary = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    int(is_temporary),
+                    _serialize_timestamp(datetime.now(UTC)),
+                    conversation_id,
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise ConversationNotFoundError(conversation_id)
+            return await _load(connection, conversation_id)
+
 
 async def _load(
     connection: aiosqlite.Connection,
@@ -262,6 +287,7 @@ def _from_row(row: aiosqlite.Row) -> Conversation:
         archived=bool(row["archived"]),
         deleted=bool(row["deleted"]),
         summary=row["summary"],
+        is_temporary=bool(row["is_temporary"]),
     )
 
 

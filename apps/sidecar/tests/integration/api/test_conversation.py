@@ -1,5 +1,6 @@
-from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -128,6 +129,38 @@ class StubConversationService:
     async def clear_conversation(self, conversation_id: str) -> None:
         self.last_cleared_conversation_id = conversation_id
         self._require(conversation_id)
+
+    async def set_temporary_conversation(
+        self,
+        conversation_id: str,
+        *,
+        is_temporary: bool,
+    ) -> Conversation:
+        conversation = self._require(conversation_id)
+        updated = Conversation(
+            id=conversation.id,
+            title=conversation.title,
+            avatar_id=conversation.avatar_id,
+            created_at=conversation.created_at,
+            updated_at=conversation.updated_at,
+            last_message_at=conversation.last_message_at,
+            archived=conversation.archived,
+            deleted=conversation.deleted,
+            summary=conversation.summary,
+            is_temporary=is_temporary,
+        )
+        self.conversations[conversation_id] = updated
+        return updated
+
+    async def get_source_message(self, message_id: int):
+        self.last_source_message_id = message_id
+        if message_id == 42:
+            return SimpleNamespace(
+                role="user",
+                content="我喜欢在早上喝咖啡",
+                created_at="2026-01-01T00:00:00Z",
+            )
+        return None
 
     async def export_conversation(self, conversation_id: str) -> dict:
         conversation = self._require(conversation_id)
@@ -470,6 +503,74 @@ async def test_conversation_get_missing_returns_404() -> None:
         )
 
     assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_conversation_temporary_flag_can_be_toggled() -> None:
+    token = generate_startup_token()
+    service = StubConversationService()
+    async with running_client(token, service) as client:
+        created = await client.post(
+            "/v1/conversations",
+            headers=authorization(token),
+            json={},
+        )
+        conversation_id = created.json()["id"]
+        assert created.json()["is_temporary"] is False
+
+        temporary = await client.post(
+            f"/v1/conversations/{conversation_id}/temporary",
+            headers=authorization(token),
+            json={"temporary": True},
+        )
+        restored = await client.post(
+            f"/v1/conversations/{conversation_id}/temporary",
+            headers=authorization(token),
+            json={"temporary": False},
+        )
+
+    assert temporary.status_code == 200
+    assert temporary.json()["is_temporary"] is True
+    assert restored.status_code == 200
+    assert restored.json()["is_temporary"] is False
+
+
+@pytest.mark.asyncio
+async def test_conversation_temporary_missing_returns_404() -> None:
+    token = generate_startup_token()
+    async with running_client(token, StubConversationService()) as client:
+        response = await client.post(
+            "/v1/conversations/missing/temporary",
+            headers=authorization(token),
+            json={"temporary": True},
+        )
+
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_source_message_lookup_reports_found_and_missing() -> None:
+    token = generate_startup_token()
+    service = StubConversationService()
+    async with running_client(token, service) as client:
+        found = await client.get(
+            "/v1/conversation/messages/42",
+            headers=authorization(token),
+        )
+        missing = await client.get(
+            "/v1/conversation/messages/999",
+            headers=authorization(token),
+        )
+
+    assert found.status_code == 200
+    assert found.json()["found"] is True
+    assert found.json()["content"] == "我喜欢在早上喝咖啡"
+    assert found.json()["role"] == "user"
+    assert missing.status_code == 200
+    assert missing.json()["found"] is False
+    assert missing.json()["content"] is None
+    # The last lookup id reaches the service (both lookups were served).
+    assert service.last_source_message_id == 999
 
 
 # --- TASK 2: conversation message restore contract ---------------------------

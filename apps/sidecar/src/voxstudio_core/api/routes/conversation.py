@@ -106,6 +106,15 @@ class MemoryClearResponse(BaseModel):
     cleared: bool = True
 
 
+class SourceMessageOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    found: bool
+    role: str | None = None
+    content: str | None = None
+    created_at: str | None = None
+
+
 class ConversationCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -125,6 +134,7 @@ class ConversationOut(BaseModel):
     archived: bool
     deleted: bool
     summary: str | None
+    is_temporary: bool = False
 
 
 class ConversationRename(BaseModel):
@@ -137,6 +147,12 @@ class ConversationArchive(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     archived: bool = True
+
+
+class ConversationTemporary(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    temporary: bool = True
 
 
 class ConversationListResponse(BaseModel):
@@ -316,6 +332,21 @@ def create_conversation_router(
                 detail=str(error),
             ) from error
         return MemoryClearResponse()
+
+    @router.get(
+        "/v1/conversation/messages/{message_id}",
+        response_model=SourceMessageOut,
+    )
+    async def get_source_message(message_id: int) -> SourceMessageOut:
+        message = await service.get_source_message(message_id)
+        if message is None:
+            return SourceMessageOut(found=False)
+        return SourceMessageOut(
+            found=True,
+            role=message.role,
+            content=message.content,
+            created_at=message.created_at,
+        )
 
     @router.delete(
         "/v1/conversation/history",
@@ -544,6 +575,31 @@ def create_conversation_router(
         return _conversation_out(conversation)
 
     @router.post(
+        "/v1/conversations/{conversation_id}/temporary",
+        response_model=ConversationOut,
+    )
+    async def set_temporary_conversation(
+        conversation_id: str,
+        payload: ConversationTemporary,
+    ) -> ConversationOut:
+        try:
+            conversation = await service.set_temporary_conversation(
+                conversation_id,
+                is_temporary=payload.temporary,
+            )
+        except ConversationNotFoundError as error:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=str(error),
+            ) from error
+        except ConversationUnavailableError as error:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=str(error),
+            ) from error
+        return _conversation_out(conversation)
+
+    @router.post(
         "/v1/conversations/{conversation_id}/clear",
         response_model=ClearHistoryResponse,
     )
@@ -613,4 +669,5 @@ def _conversation_out(conversation) -> ConversationOut:
         archived=conversation.archived,
         deleted=conversation.deleted,
         summary=conversation.summary,
+        is_temporary=conversation.is_temporary,
     )

@@ -502,3 +502,45 @@ export async function stopGenerating(
   });
   return response.stopped === true;
 }
+
+export interface SourceMessage {
+  readonly found: boolean;
+  readonly role?: string | null;
+  readonly content?: string | null;
+  readonly createdAt?: string | null;
+}
+
+/**
+ * Fetches the original message a memory entry was derived from. The sidecar
+ * resolves the message by numeric id and reports whether it is still present.
+ */
+export async function getSourceMessage(
+  messageId: number,
+): Promise<SourceMessage> {
+  const connection = await invoke<SidecarConnection>("get_sidecar_connection");
+  const response = await fetch(
+    `${connection.baseUrl}/v1/conversation/messages/${encodeURIComponent(String(messageId))}`,
+    {
+      headers: {
+        Authorization: `Bearer ${connection.bearerToken}`,
+      },
+      credentials: "omit",
+      cache: "no-store",
+    },
+  );
+  if (!response.ok) {
+    throw await toApiError(response);
+  }
+  const body = (await response.json()) as {
+    found?: boolean;
+    role?: string | null;
+    content?: string | null;
+    created_at?: string | null;
+  };
+  return {
+    found: body.found === true,
+    role: body.role ?? null,
+    content: body.content ?? null,
+    createdAt: body.created_at ?? null,
+  };
+}

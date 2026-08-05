@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from hashlib import sha256
 
@@ -102,11 +103,66 @@ _CLASSIFICATION_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
 )
 
 
+#: Default sensitive-data patterns that are never persisted: passwords/tokens,
+#: credentials, ID-card numbers, phone numbers and general "secret" phrasing.
+#: Each entry is (label, compiled regex). Users may override via the
+#: ``sensitive_patterns`` constructor argument.
+_SENSITIVE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    (
+        "password",
+        re.compile(
+            r"(密码|口令|password|passwd|pwd)\s*[=:：]?\s*[\w!@#$%^&*.\-]{4,}",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "token",
+        re.compile(
+            r"(token|secret|api[_-]?key|access[_-]?key|app[_-]?secret|"
+            r"refresh[_-]?token|access[_-]?token)\s*[=:：]?\s*[\w.\-]{6,}",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "id_card",
+        re.compile(r"\b\d{17}[\dXx]\b"),
+    ),
+    (
+        "phone",
+        re.compile(r"(?<!\d)1[3-9]\d{9}(?!\d)"),
+    ),
+    (
+        "credit_card",
+        re.compile(r"\b(?:\d[ -]?){13,19}\b"),
+    ),
+    (
+        "secret_phrase",
+        re.compile(
+            r"(?:我的|我的[bB]ank|银行卡|信用卡|账户|账号|用户名|登录)?"
+            r"(密码|卡号|账号|用户名|token|口令|密钥|密钥内容)",
+        ),
+    ),
+)
+
+
 class MemoryRuleService:
     """Deterministic classification and write rules for memory entries."""
 
-    def __init__(self, *, low_confidence_threshold: float = 0.5) -> None:
+    def __init__(
+        self,
+        *,
+        low_confidence_threshold: float = 0.5,
+        sensitive_patterns: Sequence[re.Pattern[str]] | None = None,
+    ) -> None:
         self._low_confidence_threshold = low_confidence_threshold
+        # Allow user-supplied patterns to replace the defaults (privacy rules
+        # are user-configurable). Falls back to the built-in defaults.
+        if sensitive_patterns is not None:
+            self._sensitive_patterns = tuple(sensitive_patterns)
+        else:
+            self._sensitive_patterns = tuple(
+                pattern for _, pattern in _SENSITIVE_PATTERNS
+            )
 
     def classify(self, text: str) -> str:
         """Classify a memory statement into a fixed memory type."""
@@ -119,12 +175,26 @@ class MemoryRuleService:
         return MEMORY_TYPE_USER_FACT
 
     def should_persist(self, content: str, sensitive: bool) -> bool:
-        """Sensitive content is not persisted by default."""
+        """Sensitive content is not persisted by default.
+
+        A memory is rejected when it is flagged sensitive by extraction OR when
+        the content itself matches a sensitive-data pattern (password, token,
+        ID number, phone number, …). The pattern set is user-configurable via
+        the constructor's ``sensitive_patterns`` argument.
+        """
         if not content or not content.strip():
             return False
         if sensitive:
             return False
+        if self.is_sensitive(content):
+            return False
         return True
+
+    def is_sensitive(self, content: str) -> bool:
+        """True when the content contains a sensitive-data pattern."""
+        if not content:
+            return False
+        return any(pattern.search(content) for pattern in self._sensitive_patterns)
 
     def source_for(self, content: str, memory_type: str) -> str:
         """Whether a memory comes from the user explicitly (user) or from

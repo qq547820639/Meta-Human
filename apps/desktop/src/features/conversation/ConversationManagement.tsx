@@ -622,7 +622,8 @@ export default function ConversationManagement({
       >
         <p>
           确认删除「{deleteTarget?.name}」？将永久删除该会话及其全部
-          消息，此操作不可撤销。
+          消息，此操作不可撤销。由该会话派生的长期记忆（衍生记忆）不会随
+          会话一并删除，如需删除请前往「会话与记忆」面板操作。
         </p>
         <button
           type="button"

@@ -1,8 +1,9 @@
 import asyncio
 import base64
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import AsyncIterator, Literal, Protocol
+from typing import Literal, Protocol
 from uuid import uuid4
 
 from voxstudio_core.knowledge.history import (
@@ -185,6 +186,28 @@ class ConversationService:
         await repository.clear(conversation_id)
         if self._history is not None:
             await self._history.clear(conversation_id=conversation_id)
+
+    async def set_temporary_conversation(
+        self,
+        conversation_id: str,
+        *,
+        is_temporary: bool,
+    ) -> Conversation:
+        """Toggle "临时对话" mode; temporary conversations never write to
+        long-term memory."""
+        repository = self._require_conversations()
+        return await repository.set_temporary(
+            conversation_id, is_temporary=is_temporary
+        )
+
+    async def get_source_message(
+        self,
+        message_id: int,
+    ) -> ConversationMessage | None:
+        """Look up a single conversation message by id (memory source)."""
+        if self._history is None:
+            return None
+        return await self._history.get_message_by_id(message_id)
 
     async def search_conversations(
         self,
@@ -684,8 +707,9 @@ class ConversationService:
     ) -> bool:
         """Long-term memory is only written for active, named conversations.
 
-        Temporary sessions (no ``conversation_id``), deleted conversations, and
-        archived conversations are excluded so their content never leaks into the
+        Temporary sessions (no ``conversation_id``), deleted conversations,
+        archived conversations, and conversations in "临时对话" mode
+        (``is_temporary``) are excluded so their content never leaks into the
         global (cross-conversation) memory store.
         """
         if conversation_id is None:
@@ -695,6 +719,8 @@ class ConversationService:
         try:
             conversation = await self._conversations.get(conversation_id)
         except ConversationNotFoundError:
+            return False
+        if conversation.is_temporary:
             return False
         return not conversation.deleted and not conversation.archived
 
