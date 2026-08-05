@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { ApiError } from "../../api/client";
+import ConfirmDialog from "../../ui/ConfirmDialog";
 import type { BuildJobData, DigitalHumanData } from "../../api/contracts";
 import {
   cleanupBuildJob,
   deleteHuman,
-  getRecentBuildJob,
+  getBuildJob,
+  getLatestBuildJobForHuman,
   listHumans,
   renameHuman,
   retryBuildJob,
@@ -184,7 +186,14 @@ export default function DigitalHumanManagement({
   onCopy,
 }: DigitalHumanManagementProps) {
   const [humans, setHumans] = useState<DigitalHumanData[]>([]);
-  const [recentJob, setRecentJob] = useState<BuildJobData | null>(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [total, setTotal] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
+  // Latest build job per digital human (not the global most recent job).
+  const [jobsByHuman, setJobsByHuman] = useState<
+    Record<string, BuildJobData>
+  >({});
+  const humansRef = useRef<DigitalHumanData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
@@ -205,12 +214,28 @@ export default function DigitalHumanManagement({
     setLoading(true);
     setError(null);
     try {
-      const [humansResponse, job] = await Promise.all([
-        listHumans(),
-        getRecentBuildJob(),
-      ]);
+      const page = await listHumans({ limit: 100, offset: 0 });
+      const humansResponse = page.humans;
+      // Fetch the latest build job for each human so each row reflects its own
+      // task status rather than the global most recent job.
+      const jobEntries = await Promise.all(
+        humansResponse.map(async (human) => {
+          const job = await getLatestBuildJobForHuman(human.id);
+          return [human.id, job] as const;
+        }),
+      );
+      humansRef.current = humansResponse;
       setHumans(humansResponse);
-      setRecentJob(job);
+      setHasMore(page.hasMore);
+      setTotal(page.total);
+      setJobsByHuman(
+        Object.fromEntries(
+          jobEntries.filter(
+            (entry): entry is readonly [string, BuildJobData] =>
+              entry[1] !== null,
+          ),
+        ),
+      );
     } catch (err) {
       setError(describeError(err));
     } finally {
@@ -218,14 +243,49 @@ export default function DigitalHumanManagement({
     }
   }, []);
 
+  // "加载更多" requests the next server page (offset = humans already fetched)
+  // rather than rendering a client-side snapshot.
+  const loadMore = useCallback(async () => {
+    if (loadingMore || !hasMore) {
+      return;
+    }
+    setLoadingMore(true);
+    setError(null);
+    try {
+      const page = await listHumans({ limit: 100, offset: humansRef.current.length });
+      const merged = [...humansRef.current, ...page.humans];
+      humansRef.current = merged;
+      setHumans(merged);
+      setHasMore(page.hasMore);
+      setTotal(page.total);
+      const jobEntries = await Promise.all(
+        page.humans.map(async (human) => {
+          const job = await getLatestBuildJobForHuman(human.id);
+          return [human.id, job] as const;
+        }),
+      );
+      setJobsByHuman((current) => ({
+        ...current,
+        ...Object.fromEntries(
+          jobEntries.filter(
+            (entry): entry is readonly [string, BuildJobData] =>
+              entry[1] !== null,
+          ),
+        ),
+      }));
+    } catch (err) {
+      setError(describeError(err));
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [loadingMore, hasMore]);
+
   useEffect(() => {
     void load();
   }, [load]);
 
   function associatedJob(human: DigitalHumanData): BuildJobData | null {
-    return recentJob !== null && recentJob.digital_human_id === human.id
-      ? recentJob
-      : null;
+    return jobsByHuman[human.id] ?? null;
   }
 
   async function handleSetDefault(human: DigitalHumanData) {
@@ -460,67 +520,79 @@ export default function DigitalHumanManagement({
             })}
           </ul>
         )}
-
-        {deleteTarget !== null ? (
-          <div role="dialog" aria-label="删除数字人">
-            <p>删除数字人：{deleteTarget.name}</p>
-            {deleteResult !== null ? (
-              <>
-                <p role="status">
-                  {deleteResult.localDeleted ? "本地删除成功" : "本地删除未完成"}
-                  {"，"}
-                  {remoteOutcomeLabel(deleteResult.remote)}
-                  {deleteResult.remote.kind === "failed" ? "（可再重试清理）" : null}
-                </p>
-                <button type="button" onClick={closeDelete}>
-                  关闭
-                </button>
-              </>
-            ) : (
-              <>
-                {deleteNeedsRemote ? (
-                  <p role="alert">
-                    该数字人关联了远程资源。删除本地记录前请先处理远程资源。
-                  </p>
-                ) : (
-                  <p>确认删除该数字人的本地记录？</p>
-                )}
-                {deleteNeedsRemote && deleteJob !== null ? (
-                  <button
-                    type="button"
-                    onClick={() => void confirmDelete("cleanup")}
-                    disabled={deleting}
-                  >
-                    {deleting ? "处理中…" : "清理远程资源并删除"}
-                  </button>
-                ) : null}
-                {deleteNeedsRemote && deleteJob === null ? (
-                  <p role="alert">Provider 不支持远程删除。</p>
-                ) : null}
-                {deleteNeedsRemote ? (
-                  <button
-                    type="button"
-                    onClick={() => void confirmDelete("skip")}
-                    disabled={deleting}
-                  >
-                    {deleting ? "处理中…" : "跳过远程清理，仅删除本地记录"}
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => void confirmDelete("skip")}
-                    disabled={deleting}
-                  >
-                    {deleting ? "处理中…" : "删除"}
-                  </button>
-                )}
-                <button type="button" onClick={closeDelete} disabled={deleting}>
-                  取消
-                </button>
-              </>
-            )}
-          </div>
+        {!loading && hasMore ? (
+          <button
+            type="button"
+            onClick={() => void loadMore()}
+            disabled={loadingMore}
+          >
+            {loadingMore ? "加载中…" : "加载更多"}
+          </button>
         ) : null}
+
+        <ConfirmDialog
+          open={deleteTarget !== null}
+          title="删除数字人"
+          titleId="delete-human-dialog-title"
+          onClose={closeDelete}
+        >
+          <p>删除数字人：{deleteTarget?.name}</p>
+          {deleteResult !== null ? (
+            <>
+              <p role="status">
+                {deleteResult.localDeleted ? "本地删除成功" : "本地删除未完成"}
+                {"，"}
+                {remoteOutcomeLabel(deleteResult.remote)}
+                {deleteResult.remote.kind === "failed" ? "（可再重试清理）" : null}
+              </p>
+              <button type="button" onClick={closeDelete}>
+                关闭
+              </button>
+            </>
+          ) : (
+            <>
+              {deleteNeedsRemote ? (
+                <p role="alert">
+                  该数字人关联了远程资源。删除本地记录前请先处理远程资源。
+                </p>
+              ) : (
+                <p>确认删除该数字人的本地记录？</p>
+              )}
+              {deleteNeedsRemote && deleteJob !== null ? (
+                <button
+                  type="button"
+                  onClick={() => void confirmDelete("cleanup")}
+                  disabled={deleting}
+                >
+                  {deleting ? "处理中…" : "清理远程资源并删除"}
+                </button>
+              ) : null}
+              {deleteNeedsRemote && deleteJob === null ? (
+                <p role="alert">Provider 不支持远程删除。</p>
+              ) : null}
+              {deleteNeedsRemote ? (
+                <button
+                  type="button"
+                  onClick={() => void confirmDelete("skip")}
+                  disabled={deleting}
+                >
+                  {deleting ? "处理中…" : "跳过远程清理，仅删除本地记录"}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void confirmDelete("skip")}
+                  disabled={deleting}
+                >
+                  {deleting ? "处理中…" : "删除"}
+                </button>
+              )}
+              <button type="button" onClick={closeDelete} disabled={deleting}>
+                取消
+              </button>
+            </>
+          )}
+        </ConfirmDialog>
       </div>
     </section>
   );

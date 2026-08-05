@@ -9,7 +9,7 @@ import DigitalHumanManagement, {
 import {
   cleanupBuildJob,
   deleteHuman,
-  getRecentBuildJob,
+  getLatestBuildJobForHuman,
   listHumans,
   renameHuman,
   retryBuildJob,
@@ -18,7 +18,7 @@ import {
 
 vi.mock("../creation/avatarBuildClient", () => ({
   listHumans: vi.fn(),
-  getRecentBuildJob: vi.fn(),
+  getLatestBuildJobForHuman: vi.fn(),
   setDefaultHuman: vi.fn(),
   renameHuman: vi.fn(),
   deleteHuman: vi.fn(),
@@ -32,7 +32,7 @@ afterEach(() => {
 });
 
 beforeEach(() => {
-  vi.mocked(getRecentBuildJob).mockResolvedValue(null);
+  vi.mocked(getLatestBuildJobForHuman).mockResolvedValue(null);
 });
 
 function human(overrides: Partial<DigitalHumanData> = {}): DigitalHumanData {
@@ -53,6 +53,18 @@ function human(overrides: Partial<DigitalHumanData> = {}): DigitalHumanData {
     created_at: "2026-08-04T00:00:00Z",
     updated_at: "2026-08-04T00:00:00Z",
     ...overrides,
+  };
+}
+
+/** Wraps a list of humans in the server-paginated response shape. */
+function humanPage(
+  humans: DigitalHumanData[],
+  overrides: { total?: number; hasMore?: boolean } = {},
+): { humans: DigitalHumanData[]; total: number; hasMore: boolean } {
+  return {
+    humans,
+    total: overrides.total ?? humans.length,
+    hasMore: overrides.hasMore ?? false,
   };
 }
 
@@ -89,17 +101,19 @@ function apiError(message: string, status = 500): ApiError {
 
 describe("DigitalHumanManagement", () => {
   it("renders the digital human list with default marker and statuses", async () => {
-    vi.mocked(listHumans).mockResolvedValue([
-      human({ id: "human-1", name: "阿明", is_default: true }),
-      human({
-        id: "human-2",
-        name: "小美",
-        is_default: false,
-        creation_status: "failed",
-        error: "voice enroll failed",
-        remote_status: "uploaded",
-      }),
-    ]);
+    vi.mocked(listHumans).mockResolvedValue(
+      humanPage([
+        human({ id: "human-1", name: "阿明", is_default: true }),
+        human({
+          id: "human-2",
+          name: "小美",
+          is_default: false,
+          creation_status: "failed",
+          error: "voice enroll failed",
+          remote_status: "uploaded",
+        }),
+      ]),
+    );
 
     render(<DigitalHumanManagement />);
 
@@ -113,11 +127,87 @@ describe("DigitalHumanManagement", () => {
     expect(screen.getByText("远程状态：uploaded")).toBeInTheDocument();
   });
 
+  it("fetches the latest build job per digital human and shows its status", async () => {
+    vi.mocked(listHumans).mockResolvedValue(
+      humanPage([
+        human({ id: "human-1", name: "阿明", creation_status: "failed" }),
+        human({ id: "human-2", name: "小美", creation_status: "failed" }),
+      ]),
+    );
+    vi.mocked(getLatestBuildJobForHuman)
+      .mockResolvedValueOnce(
+        job({
+          id: "job-1",
+          digital_human_id: "human-1",
+          status: "cleanup_failed",
+          error_detail: "remote enroll timeout",
+        }),
+      )
+      .mockResolvedValueOnce(
+        job({
+          id: "job-2",
+          digital_human_id: "human-2",
+          status: "failed",
+          error_detail: "voice upload failed",
+        }),
+      );
+
+    render(<DigitalHumanManagement />);
+
+    await waitFor(() =>
+      expect(screen.getByText("阿明")).toBeInTheDocument(),
+    );
+    expect(getLatestBuildJobForHuman).toHaveBeenCalledTimes(2);
+    expect(getLatestBuildJobForHuman).toHaveBeenCalledWith("human-1");
+    expect(getLatestBuildJobForHuman).toHaveBeenCalledWith("human-2");
+
+    const row1 = screen.getByText("阿明").closest("li") as HTMLElement;
+    expect(within(row1).getByText("任务详情：remote enroll timeout")).toBeInTheDocument();
+    expect(
+      within(row1).getByRole("button", { name: "清理失败资源" }),
+    ).toBeInTheDocument();
+
+    const row2 = screen.getByText("小美").closest("li") as HTMLElement;
+    expect(within(row2).getByText("任务详情：voice upload failed")).toBeInTheDocument();
+  });
+
+  it("loads more digital humans by hitting the server for the next page", async () => {
+    const firstPage = Array.from({ length: 100 }, (_, i) =>
+      human({ id: `h${i}`, name: `数字人${i}` }),
+    );
+    const secondPage = Array.from({ length: 5 }, (_, i) =>
+      human({ id: `h${i + 100}`, name: `数字人${i + 100}` }),
+    );
+    vi.mocked(listHumans)
+      .mockResolvedValueOnce(humanPage(firstPage, { total: 105, hasMore: true }))
+      .mockResolvedValueOnce(
+        humanPage(secondPage, { total: 105, hasMore: false }),
+      );
+    vi.mocked(getLatestBuildJobForHuman).mockResolvedValue(null);
+
+    render(<DigitalHumanManagement />);
+
+    await waitFor(() =>
+      expect(screen.getByText("数字人0")).toBeInTheDocument(),
+    );
+    expect(screen.queryByText("数字人104")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "加载更多" }));
+    await waitFor(() =>
+      expect(screen.getByText("数字人104")).toBeInTheDocument(),
+    );
+
+    // The second request must carry the correct server offset (humans fetched).
+    expect(listHumans).toHaveBeenLastCalledWith({ limit: 100, offset: 100 });
+  });
+
   it("switches the default digital human and notifies the parent", async () => {
-    vi.mocked(listHumans).mockResolvedValue([
-      human({ id: "human-1", name: "阿明", is_default: true }),
-      human({ id: "human-2", name: "小美", is_default: false }),
-    ]);
+    vi.mocked(listHumans).mockResolvedValue(
+      humanPage([
+        human({ id: "human-1", name: "阿明", is_default: true }),
+        human({ id: "human-2", name: "小美", is_default: false }),
+      ]),
+    );
     vi.mocked(setDefaultHuman).mockResolvedValue(
       human({ id: "human-2", name: "小美", is_default: true }),
     );
@@ -146,9 +236,9 @@ describe("DigitalHumanManagement", () => {
   });
 
   it("renames a digital human", async () => {
-    vi.mocked(listHumans).mockResolvedValue([
-      human({ id: "human-1", name: "阿明" }),
-    ]);
+    vi.mocked(listHumans).mockResolvedValue(
+      humanPage([human({ id: "human-1", name: "阿明" })]),
+    );
     vi.mocked(renameHuman).mockResolvedValue(
       human({ id: "human-1", name: "阿明（新）" }),
     );
@@ -172,9 +262,9 @@ describe("DigitalHumanManagement", () => {
   });
 
   it("deletes a human without remote resources locally only", async () => {
-    vi.mocked(listHumans).mockResolvedValue([
-      human({ id: "human-1", name: "阿明" }),
-    ]);
+    vi.mocked(listHumans).mockResolvedValue(
+      humanPage([human({ id: "human-1", name: "阿明" })]),
+    );
     vi.mocked(deleteHuman).mockResolvedValue(undefined);
 
     render(<DigitalHumanManagement />);
@@ -201,15 +291,17 @@ describe("DigitalHumanManagement", () => {
   });
 
   it("cleans remote resources then deletes locally when cleanup succeeds", async () => {
-    vi.mocked(listHumans).mockResolvedValue([
-      human({
-        id: "human-1",
-        name: "阿明",
-        avatar_id: "avatar-1",
-        remote_status: "uploaded",
-      }),
-    ]);
-    vi.mocked(getRecentBuildJob).mockResolvedValue(
+    vi.mocked(listHumans).mockResolvedValue(
+      humanPage([
+        human({
+          id: "human-1",
+          name: "阿明",
+          avatar_id: "avatar-1",
+          remote_status: "uploaded",
+        }),
+      ]),
+    );
+    vi.mocked(getLatestBuildJobForHuman).mockResolvedValue(
       job({ id: "job-1", digital_human_id: "human-1" }),
     );
     vi.mocked(cleanupBuildJob).mockResolvedValue(
@@ -242,15 +334,17 @@ describe("DigitalHumanManagement", () => {
   });
 
   it("keeps the local record when remote cleanup fails and offers a retry", async () => {
-    vi.mocked(listHumans).mockResolvedValue([
-      human({
-        id: "human-1",
-        name: "阿明",
-        avatar_id: "avatar-1",
-        remote_status: "uploaded",
-      }),
-    ]);
-    vi.mocked(getRecentBuildJob).mockResolvedValue(
+    vi.mocked(listHumans).mockResolvedValue(
+      humanPage([
+        human({
+          id: "human-1",
+          name: "阿明",
+          avatar_id: "avatar-1",
+          remote_status: "uploaded",
+        }),
+      ]),
+    );
+    vi.mocked(getLatestBuildJobForHuman).mockResolvedValue(
       job({ id: "job-1", digital_human_id: "human-1" }),
     );
     vi.mocked(cleanupBuildJob).mockResolvedValue(
@@ -282,15 +376,17 @@ describe("DigitalHumanManagement", () => {
   });
 
   it("reports skip-local-delete as remote cleanup pending, never cleaned", async () => {
-    vi.mocked(listHumans).mockResolvedValue([
-      human({
-        id: "human-1",
-        name: "阿明",
-        avatar_id: "avatar-1",
-        remote_status: "uploaded",
-      }),
-    ]);
-    vi.mocked(getRecentBuildJob).mockResolvedValue(
+    vi.mocked(listHumans).mockResolvedValue(
+      humanPage([
+        human({
+          id: "human-1",
+          name: "阿明",
+          avatar_id: "avatar-1",
+          remote_status: "uploaded",
+        }),
+      ]),
+    );
+    vi.mocked(getLatestBuildJobForHuman).mockResolvedValue(
       job({ id: "job-1", digital_human_id: "human-1" }),
     );
     vi.mocked(deleteHuman).mockResolvedValue(undefined);
@@ -334,10 +430,12 @@ describe("DigitalHumanManagement", () => {
   });
 
   it("shows an ApiError message on a failed default switch", async () => {
-    vi.mocked(listHumans).mockResolvedValue([
-      human({ id: "human-1", name: "阿明", is_default: true }),
-      human({ id: "human-2", name: "小美", is_default: false }),
-    ]);
+    vi.mocked(listHumans).mockResolvedValue(
+      humanPage([
+        human({ id: "human-1", name: "阿明", is_default: true }),
+        human({ id: "human-2", name: "小美", is_default: false }),
+      ]),
+    );
     vi.mocked(setDefaultHuman).mockRejectedValue(
       apiError("无法切换默认数字人", 409),
     );

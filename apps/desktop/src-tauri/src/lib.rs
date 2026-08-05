@@ -168,6 +168,20 @@ fn pick_recording_file() -> Result<String, String> {
     Ok(destination.to_string_lossy().into_owned())
 }
 
+/// Opens the native "save" dialog and writes `content` to the chosen file.
+/// Returns the saved path on success, `None` when the user cancels, and an
+/// error when writing fails.
+#[tauri::command]
+fn save_text_file(default_name: String, content: String) -> Result<String, String> {
+    let file = rfd::FileDialog::new()
+        .add_filter("导出", &["md", "json", "txt"])
+        .set_file_name(&default_name)
+        .save_file()
+        .ok_or_else(|| "选择已取消".to_string())?;
+    std::fs::write(&file, content).map_err(|error| error.to_string())?;
+    Ok(file.to_string_lossy().into_owned())
+}
+
 #[tauri::command]
 fn load_app_settings(app: tauri::AppHandle) -> Result<AppSettingsView, String> {
     let data_dir = app
@@ -388,6 +402,7 @@ pub fn run() {
             delete_captured_temp_media,
             pick_portrait_file,
             pick_recording_file,
+            save_text_file,
             load_app_settings,
             save_app_settings,
             reset_all_settings,

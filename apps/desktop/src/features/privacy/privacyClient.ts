@@ -1,5 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 
+import { toApiError } from "../../api/client";
+
 interface SidecarConnection {
   readonly baseUrl: string;
   readonly bearerToken: string;
@@ -16,6 +18,6 @@ export async function clearAllLocalData(): Promise<void> {
     cache: "no-store",
   });
   if (!response.ok) {
-    throw new Error("无法清空本地数据。");
+    throw await toApiError(response);
   }
 }

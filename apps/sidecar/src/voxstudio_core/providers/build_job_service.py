@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -14,6 +15,7 @@ from voxstudio_core.persistence.build_job_repository import (
     BuildJobRepository,
     BuildJobStatus,
     BuildStage,
+    CleanupState,
 )
 from voxstudio_core.persistence.digital_human_repository import (
     DigitalHumanRepository,
@@ -90,6 +92,7 @@ class BuildJobService:
             )
             if existing is not None:
                 return existing
+        provider = await self._provider_for(digital_human_id)
         job = await self._repository.create(
             portrait_path=portrait_path,
             recording_path=recording_path,
@@ -97,12 +100,42 @@ class BuildJobService:
             idempotency_key=idempotency_key,
             created_at=self._clock(),
             mode=mode,
+            provider=provider,
         )
         await self._spawn(job)
         return job
 
+    async def _provider_for(
+        self, digital_human_id: str | None
+    ) -> str | None:
+        """Best-effort provider identifier for a job, derived from the digital
+        human's provider binding when available."""
+        if digital_human_id is None:
+            return None
+        try:
+            human = await self._digital_humans.get(digital_human_id)
+        except Exception:
+            return None
+        return human.avatar_provider_id or human.voice_provider_id
+
     async def get(self, job_id: str) -> BuildJob:
         return await self._repository.get(job_id)
+
+    async def latest_for_digital_human(
+        self, digital_human_id: str
+    ) -> BuildJob | None:
+        return await self._repository.latest_for_digital_human(digital_human_id)
+
+    async def list_for_digital_human(
+        self,
+        digital_human_id: str,
+        *,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[BuildJob, ...]:
+        return await self._repository.list_for_digital_human(
+            digital_human_id, limit=limit, offset=offset
+        )
 
     async def current(self) -> BuildJob | None:
         """Return the most recent unfinished build job, if any. Completed jobs
@@ -151,6 +184,7 @@ class BuildJobService:
             error_detail=None,
             cancelled=False,
             retry_count=job.retry_count + 1,
+            cleanup_state=CleanupState.NONE,
             updated_at=self._clock(),
         )
         await self._spawn(job)
@@ -344,6 +378,10 @@ class BuildJobService:
                 avatar_id=avatar_id,
                 updated_at=self._clock(),
             )
+        current = await self._repository.get(job.id)
+        remote_resources = _merge_remote_resources(
+            current.remote_resource_id, voice_id, avatar_id
+        )
         return await self._repository.update(
             job.id,
             status=BuildJobStatus.RUNNING,
@@ -351,6 +389,8 @@ class BuildJobService:
             updated_at=self._clock(),
             staging_voice_id=staging_voice,
             staging_avatar_id=staging_avatar,
+            remote_resource_id=remote_resources,
+            provider=current.provider or job.provider,
         )
 
     async def _save_result(self, job: BuildJob) -> None:
@@ -421,6 +461,7 @@ class BuildJobService:
             status=BuildJobStatus.FAILED,
             error_code=failure.code,
             error_detail=failure.detail,
+            last_error=failure.detail,
             updated_at=self._clock(),
         )
         if job.mode == "new" and job.digital_human_id is not None:
@@ -454,6 +495,7 @@ class BuildJobService:
                 job.id,
                 status=BuildJobStatus.CLEANUP_PENDING,
                 current_stage=BuildStage.CLEANUP,
+                cleanup_state=CleanupState.PENDING,
                 updated_at=self._clock(),
             )
             remote_ids = [
@@ -470,6 +512,7 @@ class BuildJobService:
             await self._repository.update(
                 job.id,
                 status=BuildJobStatus.CANCELLED,
+                cleanup_state=CleanupState.SUCCEEDED,
                 completed_at=self._clock(),
                 updated_at=self._clock(),
             )
@@ -479,6 +522,8 @@ class BuildJobService:
                 status=BuildJobStatus.CLEANUP_FAILED,
                 error_code="cleanup_failed",
                 error_detail=str(error),
+                last_error=str(error),
+                cleanup_state=CleanupState.FAILED,
                 updated_at=self._clock(),
             )
 
@@ -513,3 +558,24 @@ def _read_media(path: Path, max_bytes: int) -> bytes:
 
 def _utc_now() -> datetime:
     return datetime.now(UTC)
+
+
+def _merge_remote_resources(
+    existing: str | None,
+    voice_id: str | None,
+    avatar_id: str | None,
+) -> str:
+    """Merge newly created remote resource ids into the job's serialized (JSON)
+    ``remote_resource_id`` value, preserving previously recorded ids."""
+    resources: list[str] = []
+    if existing:
+        try:
+            parsed = json.loads(existing)
+            if isinstance(parsed, list):
+                resources = [str(item) for item in parsed]
+        except (TypeError, ValueError):
+            resources = []
+    for value in (voice_id, avatar_id):
+        if value and value not in resources:
+            resources.append(value)
+    return json.dumps(resources)

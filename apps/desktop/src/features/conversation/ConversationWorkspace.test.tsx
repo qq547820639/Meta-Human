@@ -100,7 +100,11 @@ function setThreadMetrics(
 }
 
 beforeEach(() => {
-  vi.mocked(listConversations).mockResolvedValue([]);
+  vi.mocked(listConversations).mockResolvedValue({
+    items: [],
+    hasMore: false,
+    total: 0,
+  });
   vi.mocked(clearConversationMessages).mockResolvedValue(undefined);
   vi.mocked(renameConversation).mockResolvedValue(undefined);
   Object.defineProperty(navigator, "clipboard", {
@@ -351,6 +355,62 @@ describe("ConversationWorkspace", () => {
     expect(postConversationReply).not.toHaveBeenCalled();
   });
 
+  it("hides the answer audio in read-only (只生成文字) mode", async () => {
+    const capture = captureStream();
+    const { container } = render(<ConversationWorkspace />);
+
+    fireEvent.click(screen.getByLabelText("只生成文字"));
+
+    fireEvent.change(screen.getByLabelText("问题"), {
+      target: { value: "你好" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+
+    capture.events.onToken?.("回答。");
+    capture.events.onDone?.("回答。");
+    capture.events.onAudio?.("QUJD");
+
+    await waitFor(() => expect(screen.getByText("回答。")).toBeInTheDocument());
+    expect(container.querySelector("audio")).toBeNull();
+  });
+
+  it("exposes 停止朗读 / 重新朗读 controls for the latest answer with audio", async () => {
+    // jsdom does not implement HTMLMediaElement.play(); stub it so the replay
+    // control can be exercised without an unhandled rejection.
+    Object.defineProperty(HTMLMediaElement.prototype, "play", {
+      configurable: true,
+      value: vi.fn().mockResolvedValue(undefined),
+    });
+
+    const capture = captureStream();
+    const { container } = render(<ConversationWorkspace />);
+
+    fireEvent.change(screen.getByLabelText("问题"), {
+      target: { value: "你好" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+
+    capture.events.onToken?.("回答。");
+    capture.events.onDone?.("回答。");
+    capture.events.onAudio?.("QUJD");
+
+    await waitFor(() =>
+      expect(container.querySelector("audio")).not.toBeNull(),
+    );
+
+    const stop = screen.getByRole("button", { name: "停止朗读" });
+    const replay = screen.getByRole("button", { name: "重新朗读" });
+
+    // Stopping playback pauses the audio element and returns tts to idle.
+    const audio = container.querySelector("audio") as HTMLAudioElement;
+    fireEvent.click(stop);
+    expect(audio.paused).toBe(true);
+
+    // Re-reading starts the audio element from the beginning.
+    fireEvent.click(replay);
+    expect(audio.currentTime).toBe(0);
+  });
+
   it("copies a single question, a single reply and the full transcript", async () => {
     const capture = captureStream();
     vi.mocked(postConversationReply).mockResolvedValue({
@@ -596,6 +656,47 @@ describe("ConversationWorkspace", () => {
     );
   });
 
+  it("surfaces request id and recommended action from a stream onError ApiError", async () => {
+    const capture = captureStream();
+
+    render(<ConversationWorkspace />);
+    fireEvent.change(screen.getByLabelText("问题"), {
+      target: { value: "你好" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+
+    const streamError = new ApiError(
+      {
+        code: "stream_disconnected",
+        message: "对话服务连接中断，请重试。",
+        retryable: true,
+        request_id: "req-stream-1",
+        recommended_action: "请重试本次对话。",
+        technical_message: null,
+        details: null,
+        provider: null,
+        provider_status: null,
+        timestamp: null,
+      },
+      200,
+    );
+    capture.events.onError?.(
+      streamError.message,
+      streamError.retryable,
+      streamError,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "对话服务连接中断，请重试。",
+      ),
+    );
+    expect(screen.getByText("请重试本次对话。")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "复制请求编号" }),
+    ).toBeInTheDocument();
+  });
+
   it("safely stops in-flight generation, audio and the avatar stream when the digital human changes", async () => {
     const capture: { events: ConversationStreamEvents } = { events: {} };
     vi.mocked(streamConversationReply).mockImplementation(
@@ -637,6 +738,37 @@ describe("ConversationWorkspace", () => {
     expect(video.paused).toBe(true);
     expect(pauseSpy).toHaveBeenCalled();
     expect(screen.queryByText("正在生成。")).toBeInTheDocument();
+  });
+
+  it("sends on Enter and exposes keyboard-focusable voice, send and stop controls", async () => {
+    const capture = captureStream();
+    mockReply();
+
+    render(<ConversationWorkspace />);
+
+    // The voice toggle is a focusable button before streaming starts.
+    const voice = screen.getByRole("button", { name: "语音提问" });
+    voice.focus();
+    expect(voice).toHaveFocus();
+
+    // Enter in the composer sends the message.
+    const textarea = screen.getByLabelText("问题");
+    fireEvent.change(textarea, { target: { value: "键盘发送" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    // Streaming events fired synchronously keep the stop control mounted.
+    capture.events.onGenerationStarted?.("gen-kb");
+    capture.events.onToken?.("回答。");
+
+    // The stop control is a focusable button that stops the real generation id.
+    const stop = screen.getByRole("button", { name: "停止生成" });
+    stop.focus();
+    expect(stop).toHaveFocus();
+    fireEvent.click(stop);
+    expect(stopGenerating).toHaveBeenCalledWith("gen-kb");
+
+    // Enter in the composer actually triggered a streamed reply.
+    expect(streamConversationReply).toHaveBeenCalledTimes(1);
   });
 });
 

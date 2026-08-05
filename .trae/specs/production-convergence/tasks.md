@@ -41,12 +41,28 @@
 
 ## 第二阶段：P1 稳定性与用户体验
 
-- [ ] Task 6: 每个数字人的任务与远程资源关系（按数字人查询任务/历史/重试/清理能力；保存 provider/remote ID/清理状态/最后错误；失败进入可恢复状态）
-- [ ] Task 7: 统一服务端分页（cursor 或 limit+offset；`next_cursor`/`has_more`；前端加载更多真实请求；51/500 条；虚拟化；搜索防抖+取消）
-- [ ] Task 8: 统一所有 API 与流式错误（`ApiError`：code/message/request_id/retryable/recommended_action/HTTP 状态/诊断信息；SSE 异常也生成 ApiError；按类型提供操作）
-- [ ] Task 9: 拆分超大组件并建立确定性状态机（`useConversationController`/`useStreamingReply`/`useVoiceRecording`/`useTtsPlayback`/`useAvatarSession`/`useConversationRestore`/Timeline/Composer/VoiceControls/RecoveryBanner/CreationWizard/BuildProgress；reducer 状态机+测试）
-- [ ] Task 10: 修复可靠性细节（录音 finally 清理；清空会话先等后端成功；破坏性操作显示对象名与影响范围；导出用原生保存对话框支持 MD/JSON 且含会话名/时间/数字人/模型/消息/引用/版本；设置脏状态/分区校验/连接测试/失败回滚；自动朗读/停止/重读/仅文字；首字/TTS 启动/头像就绪耗时指标；静默 catch 可观察化；删除旧对话实现）
-- [ ] Task 11: 无障碍与键盘体验（`aria-modal`、标题关联、焦点锁定、Escape 关闭、焦点恢复、Tab 顺序、SR 播报、reduced-motion、键盘发送/停止/录音/切会话、对比度与可见焦点）
+- [x] Task 6: 每个数字人的任务与远程资源关系（按数字人查询任务/历史/重试/清理能力；保存 provider/remote ID/清理状态/最后错误；失败进入可恢复状态）
+- [x] Task 7: 统一服务端分页（cursor 或 limit+offset；`next_cursor`/`has_more`；前端加载更多真实请求；51/500 条；虚拟化；搜索防抖+取消）
+- [x] Task 8: 统一所有 API 与流式错误（`ApiError`：code/message/request_id/retryable/recommended_action/HTTP 状态/诊断信息；SSE 异常也生成 ApiError；按类型提供操作）
+- [x] Task 9: 拆分超大组件并建立确定性状态机（`useConversationController`/`useStreamingReply`/`useVoiceRecording`/`useTtsPlayback`/`useAvatarSession`/`useConversationRestore`/Timeline/Composer/VoiceControls/RecoveryBanner/CreationWizard/BuildProgress；reducer 状态机+测试）
+- [x] Task 10: 修复可靠性细节（录音 finally 清理；清空会话先等后端成功；破坏性操作显示对象名与影响范围；导出用原生保存对话框支持 MD/JSON 且含会话名/时间/数字人/模型/消息/引用/版本；设置脏状态/分区校验/连接测试/失败回滚；自动朗读/停止/重读/仅文字；首字/TTS 启动/头像就绪耗时指标；静默 catch 可观察化；删除旧对话实现）
+  - [x] 录音临时文件在 `finally` 清理（`useVoiceRecording` 的 stop/transcribe 流程始终 `deleteMediaFile`，转写失败/取消也不泄漏）
+  - [x] 清空会话先等后端成功再提交 UI（`performClear` 先 `clearConversationMessages` 成功后再清空本地，失败保留快照并提示）
+  - [x] 破坏性操作显示对象名与影响范围（清空/删除对话框含会话名 `「xxx」` 及消息数量/不可撤销提示）
+  - [x] 导出用 Tauri 原生保存对话框（Rust `save_text_file` command），支持 Markdown 与 JSON，含会话名/导出时间/数字人/模型/版本/消息/引用
+  - [x] 设置页脏状态、分区校验、连接测试、保存失败回滚（`savedSettings` 快照回滚；`validateSettings` 校验；`ServiceStatusPanel` 一键检查；新增脏状态提示）
+  - [x] 朗读控制：自动/停止/重新朗读/只生成文字（`useTtsPlayback` 提供 stopPlayback/replayLatest；`readOnly` 态）
+  - [x] 耗时指标：首字/TTS 启动/完整回答/头像就绪（`conversationMetrics` + `useStreamingReply`/`useTtsPlayback`/`useAvatarSession`）
+  - [x] 静默 catch 可观察化（错误置为可观察状态或带「best-effort/有意忽略」注释）
+  - [x] 删除旧对话实现（`Conversation.tsx`/`ConversationStream.tsx` 及测试已删除；仓库仅剩 `ConversationWorkspace`）
+  - [x] 验证：vitest（conversation 83 / settings+creation+restore 99 全绿）、`pnpm tsc --noEmit` 通过
+- [x] Task 11: 无障碍与键盘体验（`aria-modal`、标题关联、焦点锁定、Escape 关闭、焦点恢复、Tab 顺序、SR 播报、reduced-motion、键盘发送/停止/录音/切会话、对比度与可见焦点）
+  - [x] 封装 `useDialog` hook + `ConfirmDialog` 组件（`apps/desktop/src/ui/`）：弹窗打开聚焦首元素、Tab 在弹窗内循环、Escape 关闭、关闭后恢复触发点焦点
+  - [x] 全部确认弹窗接入 `ConfirmDialog`（清空对话/删除对话/清空本地数据/重置设置/删除知识来源/删除数字人），`DigitalHumanManagement` 删除弹窗补齐 `aria-modal`/`aria-labelledby`
+  - [x] 新增全局 `accessibility.css`（`main.tsx` 引入）：`:focus-visible` 覆盖按钮/输入/文本域/链接/`[tabindex]`，`conversation-modal` 遮罩+卡片样式，`prefers-reduced-motion` 关闭动画与滚动
+  - [x] 键盘操作保底：Composer Enter 发送、停止生成/语音提问/切换会话均为可聚焦按钮（SR 播报沿用既有 `role="status"`/`role="alert"`，录音状态已 `role="status"`）
+  - [x] 新增测试：焦点进入/恢复/Escape 关闭/Tab 循环/`aria-modal`/`aria-labelledby`/reduced-motion CSS/键盘发送-停止-录音
+  - [x] 验证：`pnpm vitest run src/features`（260 通过）、`pnpm tsc --noEmit` 通过
 
 ## 第三阶段：P2 发布工程
 

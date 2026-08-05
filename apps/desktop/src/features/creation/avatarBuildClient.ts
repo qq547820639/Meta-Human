@@ -1,6 +1,7 @@
 import { apiRequest } from "../../api/client";
 import type {
   BuildJobData,
+  BuildJobHistoryData,
   DigitalHumanData,
 } from "../../api/contracts";
 
@@ -115,6 +116,29 @@ export async function getRecentBuildJob(): Promise<BuildJobData | null> {
   return apiRequest<BuildJobData | null>({ path: "/v1/avatar/jobs/recent" });
 }
 
+/**
+ * The most recent build job for a specific digital human (not the global
+ * latest). Returns null when the human has never had a build job.
+ */
+export async function getLatestBuildJobForHuman(
+  humanId: string,
+): Promise<BuildJobData | null> {
+  return apiRequest<BuildJobData | null>({
+    path: `/v1/avatar/humans/${encodeURIComponent(humanId)}/job`,
+  });
+}
+
+/** Paged build-job history for a specific digital human. */
+export async function listBuildJobsForHuman(
+  humanId: string,
+  limit = 50,
+  offset = 0,
+): Promise<BuildJobHistoryData> {
+  return apiRequest<BuildJobHistoryData>({
+    path: `/v1/avatar/humans/${encodeURIComponent(humanId)}/jobs?limit=${limit}&offset=${offset}`,
+  });
+}
+
 /** Requests cancellation on the server; the job moves to a terminal state. */
 export async function cancelBuildJob(jobId: string): Promise<BuildJobData> {
   return apiRequest<BuildJobData>({
@@ -151,8 +175,22 @@ export async function getDigitalHuman(id: string): Promise<DigitalHumanData> {
   });
 }
 
-export async function listHumans(): Promise<DigitalHumanData[]> {
-  return apiRequest<DigitalHumanData[]>({ path: "/v1/avatar/humans" });
+export async function listHumans(
+  options: { limit?: number; offset?: number } = {},
+): Promise<{ humans: DigitalHumanData[]; total: number; hasMore: boolean }> {
+  const body = await apiRequest<{
+    humans?: DigitalHumanData[];
+    total?: number;
+    has_more?: boolean;
+  }>({
+    path: "/v1/avatar/humans",
+    query: { limit: options.limit, offset: options.offset },
+  });
+  return {
+    humans: Array.isArray(body.humans) ? body.humans : [],
+    total: typeof body.total === "number" ? body.total : 0,
+    hasMore: body.has_more === true,
+  };
 }
 
 export async function setDefaultHuman(id: string): Promise<DigitalHumanData> {

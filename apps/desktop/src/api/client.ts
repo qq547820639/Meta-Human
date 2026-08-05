@@ -165,6 +165,28 @@ export async function apiRequest<T>(
   return (await response.json()) as T;
 }
 
+/**
+ * Builds an `ApiError` from a non-2xx fetch response using the unified error
+ * envelope. Parses the structured envelope from the body when present and
+ * falls back to a generic `request_failed` envelope otherwise. Used by the
+ * raw-fetch clients (conversation, knowledge, privacy, settings, streaming)
+ * so every request path throws the same typed error.
+ */
+export async function toApiError(response: Response): Promise<ApiError> {
+  let text = "";
+  try {
+    text = await response.text();
+  } catch {
+    // Fall through to the generic envelope below.
+  }
+  const envelope = await parseEnvelope(text, response.status);
+  const requestId =
+    envelope.request_id !== ""
+      ? envelope.request_id
+      : (response.headers.get("x-request-id") ?? "");
+  return new ApiError({ ...envelope, request_id: requestId }, response.status);
+}
+
 /** Copies the request id of an `ApiError` to the clipboard, if available. */
 export async function copyRequestId(error: ApiError): Promise<boolean> {
   if (!error.requestId) {

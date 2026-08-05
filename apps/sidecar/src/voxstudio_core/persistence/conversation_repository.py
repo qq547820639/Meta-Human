@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Literal
 from uuid import uuid4
 
 import aiosqlite
@@ -64,12 +65,14 @@ class ConversationRepository:
         *,
         limit: int = 50,
         offset: int = 0,
-        include_archived: bool = True,
+        archived: Literal["any", "active", "archived"] = "any",
     ) -> tuple[Conversation, ...]:
         clauses = ["deleted = 0"]
         params: list[object] = []
-        if not include_archived:
+        if archived == "active":
             clauses.append("archived = 0")
+        elif archived == "archived":
+            clauses.append("archived = 1")
         where = " AND ".join(clauses)
         params.extend([limit, offset])
         async with self._database.transaction(immediate=False) as connection:
@@ -171,8 +174,10 @@ class ConversationRepository:
         *,
         query: str,
         limit: int = 50,
+        offset: int = 0,
     ) -> tuple[Conversation, ...]:
         term = f"%{query.strip()}%"
+        params: list[object] = [term, term, term, limit, offset]
         async with self._database.transaction(immediate=False) as connection:
             async with connection.execute(
                 """
@@ -189,15 +194,27 @@ class ConversationRepository:
                       )
                   )
                 ORDER BY updated_at DESC, id DESC
-                LIMIT ?
+                LIMIT ? OFFSET ?
                 """,
-                (term, term, term, limit),
+                params,
             ) as cursor:
                 rows = await cursor.fetchall()
         return tuple(_from_row(row) for row in rows)
 
-    async def count(self, *, include_deleted: bool = False) -> int:
-        where = "" if include_deleted else "WHERE deleted = 0"
+    async def count(
+        self,
+        *,
+        include_deleted: bool = False,
+        archived: Literal["any", "active", "archived"] = "any",
+    ) -> int:
+        clauses: list[str] = []
+        if not include_deleted:
+            clauses.append("deleted = 0")
+        if archived == "active":
+            clauses.append("archived = 0")
+        elif archived == "archived":
+            clauses.append("archived = 1")
+        where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
         async with self._database.transaction(immediate=False) as connection:
             async with connection.execute(
                 f"SELECT COUNT(*) AS total FROM conversations {where}"

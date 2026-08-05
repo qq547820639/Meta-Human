@@ -633,4 +633,43 @@ describe("Settings", () => {
     const advanced = screen.getByLabelText("高级设置");
     expect(advanced).not.toHaveAttribute("open");
   });
+
+  it("shows a dirty indicator for unsaved changes and clears it after saving", async () => {
+    vi.mocked(loadAppSettings).mockResolvedValue({
+      settings: { localBaseUrl: "http://127.0.0.1:11434" },
+      remoteApiKeySet: false,
+      feishuAppSecretSet: false,
+      feishuAccessTokenSet: false,
+      feishuRefreshTokenSet: false,
+    });
+    vi.mocked(saveAppSettings).mockResolvedValue(undefined);
+    vi.mocked(restartSidecar).mockResolvedValue(undefined);
+
+    render(<Settings />);
+    await waitFor(() =>
+      expect(screen.getByLabelText("本地服务地址")).toHaveValue(
+        "http://127.0.0.1:11434",
+      ),
+    );
+    expect(screen.queryByText("有未保存的改动。")).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("本地服务地址"), {
+      target: { value: "http://127.0.0.1:11435" },
+    });
+
+    await waitFor(() =>
+      expect(screen.getByText("有未保存的改动。")).toBeInTheDocument(),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "保存设置（未保存改动）" }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("status")).toHaveTextContent(
+        "设置已保存，正在重新确认准备状态。",
+      ),
+    );
+    expect(
+      screen.queryByText("有未保存的改动。"),
+    ).not.toBeInTheDocument();
+  });
 });

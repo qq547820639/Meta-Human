@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { ApiError } from "../../api/client";
 import {
   archiveConversation,
   clearConversationMessages,
@@ -36,41 +37,68 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 describe("conversationManagementClient", () => {
-  it("lists conversations from an items envelope", async () => {
+  it("lists conversations with pagination metadata from the server", async () => {
     vi.mocked(invoke).mockResolvedValue(connection);
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
       jsonResponse({
-        items: [
+        conversations: [
           { id: "conv-1", title: "对话一", updated_at: "2026-08-01T00:00:00Z" },
           { id: "conv-2", title: "对话二", archived: true },
         ],
+        total: 2,
+        has_more: false,
       }),
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const conversations = await listConversations();
+    const page = await listConversations({ limit: 20, offset: 0 });
 
-    expect(conversations).toHaveLength(2);
-    expect(conversations[0].updatedAt).toBe("2026-08-01T00:00:00Z");
-    expect(conversations[1].archived).toBe(true);
+    expect(page.items).toHaveLength(2);
+    expect(page.items[0].updatedAt).toBe("2026-08-01T00:00:00Z");
+    expect(page.items[1].archived).toBe(true);
+    expect(page.hasMore).toBe(false);
+    expect(page.total).toBe(2);
     expect(fetchMock).toHaveBeenCalledWith(
-      "http://127.0.0.1:43123/v1/conversations",
+      "http://127.0.0.1:43123/v1/conversations?limit=20&offset=0",
       expect.objectContaining({ method: "GET" }),
     );
   });
 
-  it("searches conversations with a query parameter", async () => {
+  it("reports has_more when another server page exists", async () => {
     vi.mocked(invoke).mockResolvedValue(connection);
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
-      jsonResponse([{ id: "conv-1", title: "知识库" }]),
+      jsonResponse({
+        conversations: [{ id: "conv-1", title: "对话一" }],
+        total: 51,
+        has_more: true,
+      }),
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const conversations = await searchConversations("知识");
+    const page = await listConversations({ limit: 50, offset: 50 });
 
-    expect(conversations).toHaveLength(1);
+    expect(page.items).toHaveLength(1);
+    expect(page.hasMore).toBe(true);
+    expect(page.total).toBe(51);
+  });
+
+  it("searches conversations with a query and pagination parameters", async () => {
+    vi.mocked(invoke).mockResolvedValue(connection);
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      jsonResponse({
+        conversations: [{ id: "conv-1", title: "知识库" }],
+        total: 1,
+        has_more: false,
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const page = await searchConversations("知识", { limit: 20, offset: 0 });
+
+    expect(page.items).toHaveLength(1);
+    expect(page.hasMore).toBe(false);
     expect(fetchMock).toHaveBeenCalledWith(
-      "http://127.0.0.1:43123/v1/conversations/search?q=%E7%9F%A5%E8%AF%86",
+      "http://127.0.0.1:43123/v1/conversations/search?q=%E7%9F%A5%E8%AF%86&limit=20&offset=0",
       expect.anything(),
     );
   });
@@ -174,8 +202,15 @@ describe("conversationManagementClient", () => {
       ),
     );
 
-    await expect(listConversationMessages("conv-1")).rejects.toThrow(
-      "对话消息接口返回格式异常",
+    const error = await listConversationMessages("conv-1").catch(
+      (e: unknown) => e,
+    );
+
+    expect(error).toBeInstanceOf(ApiError);
+    expect((error as ApiError).code).toBe("invalid_response");
+    expect((error as ApiError).message).toContain("对话消息接口返回格式异常");
+    expect((error as ApiError).recommendedAction).toBe(
+      "请检查服务版本后重试。",
     );
   });
 

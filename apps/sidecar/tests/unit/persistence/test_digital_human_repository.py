@@ -101,3 +101,20 @@ async def test_get_missing_raises(repository) -> None:
     _, store = repository
     with pytest.raises(DigitalHumanNotFoundError):
         await store.get("missing")
+
+
+@pytest.mark.asyncio
+async def test_list_supports_pagination_without_duplicates(repository) -> None:
+    _, store = repository
+    for index in range(55):
+        await store.create(name=f"Human-{index}")
+
+    page1 = await store.list(limit=50, offset=0)
+    assert len(page1) == 50
+
+    page2 = await store.list(limit=50, offset=50)
+    assert len(page2) == 5
+
+    ids = [row.id for row in (*page1, *page2)]
+    assert len(ids) == len(set(ids)), "pages must not overlap (no duplicates)"
+    assert await store.count() == 55

@@ -1,5 +1,6 @@
 import asyncio
 import json
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
@@ -143,6 +144,7 @@ class ConversationListResponse(BaseModel):
 
     conversations: tuple[ConversationOut, ...]
     total: int
+    has_more: bool = False
 
 
 class ConversationMessagesResponse(BaseModel):
@@ -351,26 +353,28 @@ def create_conversation_router(
     async def list_conversations(
         limit: int = Query(default=50, ge=1, le=200),
         offset: int = Query(default=0, ge=0),
-        include_archived: bool = Query(default=True),
+        archived: Literal["any", "active", "archived"] = Query(default="any"),
     ) -> ConversationListResponse:
         try:
             conversations = await service.list_conversations(
-                limit=limit,
+                limit=limit + 1,
                 offset=offset,
-                include_archived=include_archived,
+                archived=archived,
             )
-            total = await service.count_conversations()
+            total = await service.count_conversations(archived=archived)
         except ConversationUnavailableError as error:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail=str(error),
             ) from error
+        has_more = len(conversations) > limit
         return ConversationListResponse(
             conversations=tuple(
                 _conversation_out(conversation)
-                for conversation in conversations
+                for conversation in conversations[:limit]
             ),
             total=total,
+            has_more=has_more,
         )
 
     @router.get(
@@ -380,23 +384,27 @@ def create_conversation_router(
     async def search_conversations(
         q: str = Query(min_length=1, max_length=200),
         limit: int = Query(default=50, ge=1, le=200),
+        offset: int = Query(default=0, ge=0),
     ) -> ConversationListResponse:
         try:
             conversations = await service.search_conversations(
                 query=q,
-                limit=limit,
+                limit=limit + 1,
+                offset=offset,
             )
         except ConversationUnavailableError as error:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail=str(error),
             ) from error
+        has_more = len(conversations) > limit
         return ConversationListResponse(
             conversations=tuple(
                 _conversation_out(conversation)
-                for conversation in conversations
+                for conversation in conversations[:limit]
             ),
-            total=len(conversations),
+            total=len(conversations[:limit]),
+            has_more=has_more,
         )
 
     @router.get(

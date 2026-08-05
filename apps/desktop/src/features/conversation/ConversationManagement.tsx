@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { ApiError } from "../../api/client";
+import ConfirmDialog from "../../ui/ConfirmDialog";
 import {
   ConversationSummary,
   archiveConversation,
@@ -13,6 +14,14 @@ import {
   searchConversations,
   unarchiveConversation,
 } from "./conversationManagementClient";
+import {
+  buildJsonExport,
+  buildMarkdownExport,
+  exportFileName,
+  saveTextFile,
+  type ConversationExportData,
+  type ExportFormat,
+} from "./conversationExport";
 
 interface ConversationManagementProps {
   readonly selectedId?: string | null;
@@ -24,7 +33,7 @@ interface ConversationManagementProps {
 
 /** Search debounce window (ms). */
 const SEARCH_DEBOUNCE_MS = 250;
-/** Number of conversations rendered per page (client-side pagination). */
+/** Number of conversations fetched per server page. */
 const PAGE_SIZE = 20;
 
 interface ErrorInfo {
@@ -57,6 +66,26 @@ function toErrorInfo(err: unknown): ErrorInfo {
     requestId: "",
     recommendedAction: null,
   };
+}
+
+/** A request aborted because a newer one superseded it is not a real error. */
+function isAbortError(err: unknown): boolean {
+  return err instanceof DOMException && err.name === "AbortError";
+}
+
+/** Removes duplicate ids (guards against sorting drift across pages). */
+function dedupeConversations(
+  list: readonly ConversationSummary[],
+): ConversationSummary[] {
+  const seen = new Set<string>();
+  const out: ConversationSummary[] = [];
+  for (const item of list) {
+    if (!seen.has(item.id)) {
+      seen.add(item.id);
+      out.push(item);
+    }
+  }
+  return out;
 }
 
 function ErrorNotice({
@@ -109,12 +138,14 @@ export default function ConversationManagement({
   onCleared,
   onDeleted,
 }: ConversationManagementProps) {
-  const [allItems, setAllItems] = useState<readonly ConversationSummary[]>([]);
+  const [items, setItems] = useState<readonly ConversationSummary[]>([]);
+  const [hasMore, setHasMore] = useState(false);
+  const [total, setTotal] = useState(0);
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [filter, setFilter] = useState<FilterTab>("active");
-  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [listError, setListError] = useState<ErrorInfo | null>(null);
   const [actionError, setActionError] = useState<ActionError | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
@@ -130,26 +161,52 @@ export default function ConversationManagement({
   const [activeIndex, setActiveIndex] = useState(-1);
   // Request sequence: only the latest search/list response may update state.
   const searchSeqRef = useRef(0);
+  // Abort controller: cancels the in-flight request when a newer one starts.
+  const abortRef = useRef<AbortController | null>(null);
+  // Mirror of `items` so "load more" always reads the current page offset.
+  const itemsRef = useRef<readonly ConversationSummary[]>([]);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const listRef = useRef<HTMLUListElement | null>(null);
 
+  // The active/archived tabs map to a server-side archive filter so each page
+  // is filtered and counted on the server (avoids cross-page drift).
+  const archiveFilter: "active" | "archived" =
+    filter === "active" ? "active" : "archived";
+
   const load = useCallback(async () => {
     const seq = ++searchSeqRef.current;
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
     setLoading(true);
     setListError(null);
     try {
       const q = debouncedQuery.trim();
-      const items = q
-        ? await searchConversations(q)
-        : await listConversations();
+      const page = q
+        ? await searchConversations(q, {
+            limit: PAGE_SIZE,
+            offset: 0,
+            signal: controller.signal,
+          })
+        : await listConversations({
+            limit: PAGE_SIZE,
+            offset: 0,
+            archived: archiveFilter,
+            signal: controller.signal,
+          });
       if (seq !== searchSeqRef.current) {
         return; // A newer request superseded this one.
       }
-      setAllItems(items);
-      setVisibleCount(PAGE_SIZE);
+      itemsRef.current = page.items;
+      setItems(page.items);
+      setHasMore(page.hasMore);
+      setTotal(page.total);
       setActiveIndex(-1);
     } catch (err) {
       if (seq !== searchSeqRef.current) {
+        return;
+      }
+      if (isAbortError(err)) {
         return;
       }
       setListError(toErrorInfo(err));
@@ -158,7 +215,7 @@ export default function ConversationManagement({
         setLoading(false);
       }
     }
-  }, [debouncedQuery]);
+  }, [debouncedQuery, archiveFilter]);
 
   // Debounce the search query.
   useEffect(() => {
@@ -169,10 +226,46 @@ export default function ConversationManagement({
     return () => window.clearTimeout(timer);
   }, [query]);
 
-  // Refetch whenever the (debounced) query changes.
+  // Refetch whenever the (debounced) query or archive filter changes.
   useEffect(() => {
     void load();
   }, [load]);
+
+  // "加载更多" must hit the server for the next page (offset = items fetched),
+  // not slice a client-side snapshot. Guards against duplicates via `dedupe`.
+  const loadMore = useCallback(async () => {
+    if (loadingMore || !hasMore) {
+      return;
+    }
+    setLoadingMore(true);
+    setListError(null);
+    try {
+      const q = debouncedQuery.trim();
+      const offset = itemsRef.current.length;
+      const page = q
+        ? await searchConversations(q, {
+            limit: PAGE_SIZE,
+            offset,
+          })
+        : await listConversations({
+            limit: PAGE_SIZE,
+            offset,
+            archived: archiveFilter,
+          });
+      const merged = dedupeConversations([...itemsRef.current, ...page.items]);
+      itemsRef.current = merged;
+      setItems(merged);
+      setHasMore(page.hasMore);
+      setTotal(page.total);
+    } catch (err) {
+      if (isAbortError(err)) {
+        return;
+      }
+      setListError(toErrorInfo(err));
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [debouncedQuery, archiveFilter, hasMore, loadingMore]);
 
   // Keep the keyboard-highlighted item in view.
   useEffect(() => {
@@ -187,16 +280,10 @@ export default function ConversationManagement({
     }
   }, [activeIndex]);
 
-  const filtered = allItems.filter((conversation) =>
-    filter === "active" ? !conversation.archived : conversation.archived,
-  );
-  const visible = filtered.slice(0, visibleCount);
-  const hasMore = visibleCount < filtered.length;
   const searching = debouncedQuery.trim() !== "";
 
   function handleFilterChange(next: FilterTab) {
     setFilter(next);
-    setVisibleCount(PAGE_SIZE);
     setActiveIndex(-1);
   }
 
@@ -259,16 +346,18 @@ export default function ConversationManagement({
       return;
     }
     setDeleting(true);
-    const snapshot = allItems;
+    const snapshot = items;
     // Optimistic removal; rolled back if the request fails.
-    setAllItems((current) => current.filter((c) => c.id !== target.id));
+    setItems((current) => current.filter((c) => c.id !== target.id));
+    itemsRef.current = items.filter((c) => c.id !== target.id);
     try {
       await deleteConversation(target.id);
       setDeleteTarget(null);
       onDeleted?.(target.id);
       setActionError(null);
     } catch (err) {
-      setAllItems(snapshot); // rollback on failure
+      setItems(snapshot); // rollback on failure
+      itemsRef.current = snapshot;
       setDeleteTarget(null);
       setActionError({ info: toErrorInfo(err), retry: () => void confirmDelete() });
     } finally {
@@ -295,7 +384,7 @@ export default function ConversationManagement({
     }
   }
 
-  async function handleExport() {
+  async function handleExport(format: ExportFormat) {
     if (!selectedId) {
       setActionError({
         info: {
@@ -304,18 +393,22 @@ export default function ConversationManagement({
           requestId: "",
           recommendedAction: null,
         },
-        retry: () => void handleExport(),
+        retry: () => void handleExport(format),
       });
       return;
     }
     try {
       const detail = await getConversation(selectedId);
-      const text = detail.messages
-        .map((message) =>
-          `${message.role === "user" ? "我" : "数字人"}: ${message.content}`,
-        )
-        .join("\n\n");
-      if (!text) {
+      const messages: ConversationExportData["messages"] = detail.messages.map(
+        (message) => ({
+          role: message.role,
+          text: message.content,
+          createdAt: message.createdAt ?? null,
+          citations: message.citations ?? [],
+          grounded: message.grounded,
+        }),
+      );
+      if (messages.length === 0) {
         setActionError({
           info: {
             message: "该会话暂无内容可导出。",
@@ -323,42 +416,59 @@ export default function ConversationManagement({
             requestId: "",
             recommendedAction: null,
           },
-          retry: () => void handleExport(),
+          retry: () => void handleExport(format),
         });
         return;
       }
-      const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = `conversation-${selectedId}.txt`;
-      anchor.click();
-      URL.revokeObjectURL(url);
+      const data: ConversationExportData = {
+        conversationName: detail.name || "未命名对话",
+        exportedAt: new Date().toISOString(),
+        digitalHuman: "",
+        model: "",
+        appVersion: "",
+        messages,
+      };
+      const content =
+        format === "markdown"
+          ? buildMarkdownExport(data)
+          : buildJsonExport(data);
+      const saved = await saveTextFile(
+        exportFileName(data.conversationName, format),
+        content,
+      );
+      if (saved === null) {
+        // User cancelled the native save dialog; that is not an error.
+        setActionError(null);
+        return;
+      }
       setActionError(null);
     } catch (err) {
-      setActionError({ info: toErrorInfo(err), retry: () => void handleExport() });
+      setActionError({
+        info: toErrorInfo(err),
+        retry: () => void handleExport(format),
+      });
     }
   }
 
   function handleListKeyDown(event: React.KeyboardEvent<HTMLUListElement>) {
-    if (visible.length === 0) {
+    if (items.length === 0) {
       return;
     }
     if (event.key === "ArrowDown") {
       event.preventDefault();
-      setActiveIndex((current) => Math.min(current + 1, visible.length - 1));
+      setActiveIndex((current) => Math.min(current + 1, items.length - 1));
     } else if (event.key === "ArrowUp") {
       event.preventDefault();
       setActiveIndex((current) => Math.max(current - 1, 0));
     } else if (event.key === "Enter") {
-      if (activeIndex >= 0 && activeIndex < visible.length) {
+      if (activeIndex >= 0 && activeIndex < items.length) {
         event.preventDefault();
-        onSelect?.(visible[activeIndex]);
+        onSelect?.(items[activeIndex]);
       }
     } else if (event.key === "Delete") {
-      if (activeIndex >= 0 && activeIndex < visible.length) {
+      if (activeIndex >= 0 && activeIndex < items.length) {
         event.preventDefault();
-        setDeleteTarget(visible[activeIndex]);
+        setDeleteTarget(items[activeIndex]);
       }
     }
   }
@@ -402,7 +512,7 @@ export default function ConversationManagement({
         <ErrorNotice error={listError} onRetry={() => void load()} />
       ) : null}
       {loading ? <p>正在加载对话…</p> : null}
-      {!loading && !listError && visible.length === 0 ? (
+      {!loading && !listError && items.length === 0 ? (
         <p>
           {searching
             ? "没有匹配的会话。"
@@ -419,7 +529,7 @@ export default function ConversationManagement({
           aria-label="对话列表"
           onKeyDown={handleListKeyDown}
         >
-          {visible.map((conversation, index) => (
+          {items.map((conversation, index) => (
             <li
               key={conversation.id}
               data-index={index}
@@ -491,68 +601,70 @@ export default function ConversationManagement({
       {!loading && hasMore ? (
         <button
           type="button"
-          onClick={() => setVisibleCount((current) => current + PAGE_SIZE)}
+          onClick={() => void loadMore()}
+          disabled={loadingMore}
         >
-          加载更多
+          {loadingMore ? "加载中…" : "加载更多"}
         </button>
       ) : null}
-      <button type="button" onClick={() => void handleExport()}>
-        导出当前会话
+      <button type="button" onClick={() => void handleExport("markdown")}>
+        导出当前会话（Markdown）
+      </button>
+      <button type="button" onClick={() => void handleExport("json")}>
+        导出当前会话（JSON）
       </button>
 
-      {deleteTarget ? (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="delete-dialog-title"
-          className="conversation-modal"
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title="删除对话"
+        titleId="delete-dialog-title"
+        onClose={() => setDeleteTarget(null)}
+      >
+        <p>
+          确认删除「{deleteTarget?.name}」？将永久删除该会话及其全部
+          消息，此操作不可撤销。
+        </p>
+        <button
+          type="button"
+          onClick={() => setDeleteTarget(null)}
+          disabled={deleting}
         >
-          <h2 id="delete-dialog-title">删除对话</h2>
-          <p>
-            确认删除「{deleteTarget.name}」？此操作不可撤销。
-          </p>
-          <button
-            type="button"
-            onClick={() => setDeleteTarget(null)}
-            disabled={deleting}
-          >
-            取消
-          </button>
-          <button
-            type="button"
-            onClick={() => void confirmDelete()}
-            disabled={deleting}
-          >
-            {deleting ? "删除中…" : "删除"}
-          </button>
-        </div>
-      ) : null}
+          取消
+        </button>
+        <button
+          type="button"
+          onClick={() => void confirmDelete()}
+          disabled={deleting}
+        >
+          {deleting ? "删除中…" : "删除"}
+        </button>
+      </ConfirmDialog>
 
-      {clearTarget ? (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="clear-dialog-title"
-          className="conversation-modal"
+      <ConfirmDialog
+        open={clearTarget !== null}
+        title="清空对话"
+        titleId="clear-dialog-title"
+        onClose={() => setClearTarget(null)}
+      >
+        <p>
+          确认清空「{clearTarget?.name}」的全部消息？将删除该会话的全部
+          消息，此操作不可撤销。
+        </p>
+        <button
+          type="button"
+          onClick={() => setClearTarget(null)}
+          disabled={clearing}
         >
-          <h2 id="clear-dialog-title">清空对话</h2>
-          <p>确认清空「{clearTarget.name}」的全部消息？</p>
-          <button
-            type="button"
-            onClick={() => setClearTarget(null)}
-            disabled={clearing}
-          >
-            取消
-          </button>
-          <button
-            type="button"
-            onClick={() => void confirmClear()}
-            disabled={clearing}
-          >
-            {clearing ? "清空中…" : "清空"}
-          </button>
-        </div>
-      ) : null}
+          取消
+        </button>
+        <button
+          type="button"
+          onClick={() => void confirmClear()}
+          disabled={clearing}
+        >
+          {clearing ? "清空中…" : "清空"}
+        </button>
+      </ConfirmDialog>
     </aside>
   );
 }

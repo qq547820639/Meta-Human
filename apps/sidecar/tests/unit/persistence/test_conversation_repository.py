@@ -68,11 +68,14 @@ async def test_list_supports_pagination_and_archived_filter(repository) -> None:
     second = await store.create(title="B")
     await store.archive(second.id, archived=True)
 
-    archived = await store.list(include_archived=True)
+    archived = await store.list(archived="any")
     assert {row.id for row in archived} == {first.id, second.id}
 
-    active = await store.list(include_archived=False)
+    active = await store.list(archived="active")
     assert [row.id for row in active] == [first.id]
+
+    only_archived = await store.list(archived="archived")
+    assert [row.id for row in only_archived] == [second.id]
 
     page = await store.list(limit=1, offset=0)
     assert len(page) == 1

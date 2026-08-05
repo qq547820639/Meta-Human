@@ -1,0 +1,92 @@
+/* Global accessibility: visible focus, reduced-motion and modal dialogs. */
+
+/* Visible focus indicators for every interactive control. */
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+a:focus-visible,
+summary:focus-visible,
+[tabindex]:focus-visible {
+  outline: 3px solid oklch(57% 0.13 35deg / 70%);
+  outline-offset: 3px;
+}
+
+/* The modal dialog itself is a focus container, not a focusable control. */
+.conversation-modal:focus-visible {
+  outline: none;
+}
+
+/* Modal overlay + centered card. */
+.conversation-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+  animation: modal-fade 160ms ease-out;
+}
+
+.conversation-modal::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: oklch(20% 0.03 60deg / 45%);
+}
+
+.conversation-modal-panel {
+  position: relative;
+  width: min(100%, 26rem);
+  padding: 1.5rem;
+  border: 1px solid var(--studio-line, #3a3f4b);
+  border-radius: 0.75rem;
+  background: var(--studio-canvas, #ffffff);
+  color: var(--studio-ink, #16181d);
+}
+
+.conversation-modal-panel h2 {
+  margin: 0 0 0.75rem;
+  font-size: 1.125rem;
+  font-weight: 680;
+}
+
+.conversation-modal-panel p {
+  margin: 0 0 1rem;
+  line-height: 1.5;
+  color: var(--studio-muted, #3a3f4b);
+}
+
+.conversation-modal-panel > button {
+  margin-right: 0.5rem;
+  padding: 0.5rem 0.875rem;
+  border: 1px solid var(--studio-line, #3a3f4b);
+  border-radius: 0.5rem;
+  background: var(--studio-soft, #f0f0f5);
+  color: var(--studio-ink, #16181d);
+  font: inherit;
+  cursor: pointer;
+}
+
+.conversation-modal-panel > button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+@keyframes modal-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .conversation-modal {
+    animation: none;
+  }
+  html {
+    scroll-behavior: auto;
+  }
+}

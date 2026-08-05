@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 
-import { apiRequest } from "../../api/client";
+import { ApiError, apiRequest, toApiError } from "../../api/client";
+import type { ApiErrorEnvelope } from "../../api/client";
 import type {
   ConversationMessageData,
   ReplyData,
@@ -60,7 +61,7 @@ export async function postConversationReply(
     },
   );
   if (!response.ok) {
-    throw new Error("对话服务暂时无法回复。");
+    throw await toApiError(response);
   }
   const body = (await response.json()) as Partial<ReplyData>;
   return {
@@ -90,7 +91,7 @@ export async function transcribeRecording(
     },
   );
   if (!response.ok) {
-    throw new Error("语音识别暂时不可用。");
+    throw await toApiError(response);
   }
   const body = (await response.json()) as { text: string };
   return body.text;
@@ -110,7 +111,7 @@ export async function listConversationHistory(): Promise<ConversationHistory> {
     },
   );
   if (!response.ok) {
-    throw new Error("无法读取对话历史。");
+    throw await toApiError(response);
   }
   const body = (await response.json()) as {
     messages?: readonly Partial<ConversationMessageData>[];
@@ -141,7 +142,7 @@ export async function clearConversationHistory(): Promise<void> {
     },
   );
   if (!response.ok) {
-    throw new Error("无法清空对话历史。");
+    throw await toApiError(response);
   }
 }
 
@@ -167,7 +168,17 @@ export interface ConversationStreamEvents {
   readonly onCitations?: (citations: Citation[], grounded: boolean) => void;
   readonly onDone?: (text: string) => void;
   readonly onAudio?: (audioBase64: string) => void;
-  readonly onError?: (message: string, retryable: boolean) => void;
+  /**
+   * Delivers a stream failure. Kept backward-compatible: `message` +
+   * `retryable` are always provided, and the full `ApiError` (with
+   * `requestId` / `recommendedAction` / `code` / `status`) is passed as the
+   * optional third argument so callers can surface the unified error model.
+   */
+  readonly onError?: (
+    message: string,
+    retryable: boolean,
+    error?: ApiError,
+  ) => void;
 }
 
 export interface StreamConversationOptions {
@@ -209,7 +220,23 @@ export async function streamConversationReply(
   );
 
   if (!response.ok || !response.body) {
-    options.events?.onError?.("对话服务暂时无法回复。", true);
+    if (!response.ok) {
+      // HTTP status abnormal: derive the full structured error from the body.
+      const apiError = await toApiError(response);
+      dispatchStreamError(options.events, apiError);
+    } else {
+      dispatchStreamError(
+        options.events,
+        new ApiError(
+          streamErrorEnvelope({
+            code: "stream_unavailable",
+            message: "对话服务暂时无法回复。",
+            retryable: true,
+          }),
+          response.status,
+        ),
+      );
+    }
     return;
   }
 
@@ -236,11 +263,64 @@ export async function streamConversationReply(
     if (isAbortError(caught)) {
       options.events?.onError?.("已停止生成。", false);
     } else {
-      options.events?.onError?.("对话服务暂时无法回复。", true);
+      // Mid-stream disconnect: generate the same unified ApiError.
+      dispatchStreamError(
+        options.events,
+        new ApiError(
+          streamErrorEnvelope({
+            code: "stream_disconnected",
+            message: "对话服务连接中断，请重试。",
+            retryable: true,
+            recommended_action: "请重试本次对话。",
+          }),
+          response.status,
+        ),
+      );
     }
   } finally {
     reader.releaseLock();
   }
+}
+
+/** Dispatches a complete `ApiError` through the backward-compatible callback. */
+function dispatchStreamError(
+  events: ConversationStreamEvents | undefined,
+  apiError: ApiError,
+): void {
+  events?.onError?.(apiError.message, apiError.retryable, apiError);
+}
+
+/**
+ * Builds a stream `ApiErrorEnvelope` from partial event fields, defaulting
+ * missing values so the stream always yields a complete envelope.
+ */
+function streamErrorEnvelope(
+  partial: Partial<ApiErrorEnvelope>,
+  fallbackMessage = "对话服务暂时无法回复。",
+): ApiErrorEnvelope {
+  return {
+    code:
+      typeof partial.code === "string" && partial.code.length > 0
+        ? partial.code
+        : "stream_error",
+    message:
+      typeof partial.message === "string" && partial.message.length > 0
+        ? partial.message
+        : fallbackMessage,
+    retryable:
+      typeof partial.retryable === "boolean" ? partial.retryable : true,
+    request_id:
+      typeof partial.request_id === "string" ? partial.request_id : "",
+    recommended_action:
+      typeof partial.recommended_action === "string"
+        ? partial.recommended_action
+        : null,
+    technical_message: partial.technical_message ?? null,
+    details: partial.details ?? null,
+    provider: partial.provider ?? null,
+    provider_status: partial.provider_status ?? null,
+    timestamp: partial.timestamp ?? null,
+  };
 }
 
 function handleStreamLine(
@@ -252,8 +332,10 @@ function handleStreamLine(
     return;
   }
   let payload = trimmed;
+  let isDataEvent = false;
   if (payload.startsWith("data:")) {
     payload = payload.slice("data:".length).trim();
+    isDataEvent = true;
   }
   if (!payload) {
     return;
@@ -263,6 +345,22 @@ function handleStreamLine(
   try {
     parsed = JSON.parse(payload) as Record<string, unknown>;
   } catch {
+    // A line prefixed with `data:` that is not valid JSON is a contract
+    // breach; leave the fallback path for unrecognized lines untouched.
+    if (isDataEvent) {
+      dispatchStreamError(
+        events,
+        new ApiError(
+          streamErrorEnvelope({
+            code: "parse_failed",
+            message: "对话服务返回了无法解析的数据。",
+            retryable: true,
+            recommended_action: "请重试本次对话。",
+          }),
+          200,
+        ),
+      );
+    }
     return;
   }
 
@@ -311,11 +409,29 @@ function handleStreamLine(
       break;
     }
     case "error": {
-      const message =
-        typeof parsed.message === "string"
-          ? parsed.message
-          : "对话服务暂时无法回复。";
-      events?.onError?.(message, parsed.retryable === true);
+      // SSE error event: parse the full structured error fields.
+      const apiError = new ApiError(
+        streamErrorEnvelope({
+          code:
+            typeof parsed.code === "string" ? parsed.code : undefined,
+          message:
+            typeof parsed.message === "string" ? parsed.message : undefined,
+          retryable:
+            typeof parsed.retryable === "boolean"
+              ? parsed.retryable
+              : undefined,
+          request_id:
+            typeof parsed.request_id === "string"
+              ? parsed.request_id
+              : undefined,
+          recommended_action:
+            typeof parsed.recommended_action === "string"
+              ? parsed.recommended_action
+              : undefined,
+        }),
+        200,
+      );
+      dispatchStreamError(events, apiError);
       break;
     }
   }

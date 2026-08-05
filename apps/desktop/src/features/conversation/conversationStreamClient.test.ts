@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { ApiError } from "../../api/client";
 import {
   Citation,
   stopGenerating,
@@ -214,20 +215,121 @@ describe("streamConversationReply", () => {
     expect(retryable).toBe(true);
   });
 
-  it("falls back to a generic error when the stream is unavailable", async () => {
+  it("delivers a full ApiError when the stream HTTP request fails", async () => {
     vi.mocked(invoke).mockResolvedValue(connection);
     vi.stubGlobal(
       "fetch",
-      vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 503 })),
+      vi.fn<typeof fetch>().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            code: "provider_busy",
+            message: "服务繁忙",
+            retryable: true,
+            request_id: "req-http-1",
+            recommended_action: "请稍后重试。",
+          }),
+          {
+            status: 503,
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
+      ),
     );
 
+    let apiError: ApiError | undefined;
     let message = "";
     await streamConversationReply({
       query: "q",
-      events: { onError: (m) => (message = m) },
+      events: {
+        onError: (m, _r, error) => {
+          message = m;
+          apiError = error;
+        },
+      },
     });
 
-    expect(message).toBe("对话服务暂时无法回复。");
+    expect(apiError).toBeInstanceOf(ApiError);
+    expect(message).toBe("服务繁忙");
+    expect(apiError?.code).toBe("provider_busy");
+    expect(apiError?.retryable).toBe(true);
+    expect(apiError?.requestId).toBe("req-http-1");
+    expect(apiError?.recommendedAction).toBe("请稍后重试。");
+    expect(apiError?.status).toBe(503);
+  });
+
+  it("delivers a full ApiError from an SSE error event with request_id", async () => {
+    vi.mocked(invoke).mockResolvedValue(connection);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockResolvedValue(
+        streamResponse([
+          'data: {"type":"error","code":"provider_busy","message":"服务繁忙","retryable":true,"request_id":"req-err-1","recommended_action":"请稍后重试。"}',
+        ]),
+      ),
+    );
+
+    let apiError: ApiError | undefined;
+    await streamConversationReply({
+      query: "q",
+      events: { onError: (m, r, error) => void (apiError = error) },
+    });
+
+    expect(apiError).toBeInstanceOf(ApiError);
+    expect(apiError?.message).toBe("服务繁忙");
+    expect(apiError?.code).toBe("provider_busy");
+    expect(apiError?.retryable).toBe(true);
+    expect(apiError?.requestId).toBe("req-err-1");
+    expect(apiError?.recommendedAction).toBe("请稍后重试。");
+  });
+
+  it("generates a parse_failed ApiError when a data line is not valid JSON", async () => {
+    vi.mocked(invoke).mockResolvedValue(connection);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockResolvedValue(
+        streamResponse(["data: {not-valid-json"]),
+      ),
+    );
+
+    let apiError: ApiError | undefined;
+    await streamConversationReply({
+      query: "q",
+      events: { onError: (m, r, error) => void (apiError = error) },
+    });
+
+    expect(apiError).toBeInstanceOf(ApiError);
+    expect(apiError?.code).toBe("parse_failed");
+    expect(apiError?.retryable).toBe(true);
+    expect(apiError?.recommendedAction).toBe("请重试本次对话。");
+  });
+
+  it("generates a stream_disconnected ApiError on a mid-stream read failure", async () => {
+    vi.mocked(invoke).mockResolvedValue(connection);
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.error(new Error("connection reset"));
+      },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockResolvedValue(
+        new Response(body, {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" },
+        }),
+      ),
+    );
+
+    let apiError: ApiError | undefined;
+    await streamConversationReply({
+      query: "q",
+      events: { onError: (m, r, error) => void (apiError = error) },
+    });
+
+    expect(apiError).toBeInstanceOf(ApiError);
+    expect(apiError?.code).toBe("stream_disconnected");
+    expect(apiError?.retryable).toBe(true);
+    expect(apiError?.recommendedAction).toBe("请重试本次对话。");
   });
 });
 

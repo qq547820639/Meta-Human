@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, Query, Response, status
 from pydantic import BaseModel, ConfigDict
 
 from voxstudio_core.knowledge.sources import KnowledgeSourceStore
@@ -19,6 +19,8 @@ class KnowledgeSourceListResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     sources: tuple[KnowledgeSourceResponse, ...]
+    total: int = 0
+    has_more: bool = False
 
 
 def create_knowledge_router(
@@ -32,8 +34,13 @@ def create_knowledge_router(
         "/v1/knowledge/sources",
         response_model=KnowledgeSourceListResponse,
     )
-    async def list_sources() -> KnowledgeSourceListResponse:
-        sources = await store.list_sources()
+    async def list_sources(
+        limit: int = Query(default=100, ge=1, le=200),
+        offset: int = Query(default=0, ge=0),
+    ) -> KnowledgeSourceListResponse:
+        sources = await store.list_sources(limit=limit + 1, offset=offset)
+        total = await store.count_sources()
+        has_more = len(sources) > limit
         return KnowledgeSourceListResponse(
             sources=tuple(
                 KnowledgeSourceResponse(
@@ -43,8 +50,10 @@ def create_knowledge_router(
                     synced_at=source.synced_at,
                     chunk_count=source.chunk_count,
                 )
-                for source in sources
-            )
+                for source in sources[:limit]
+            ),
+            total=total,
+            has_more=has_more,
         )
 
     @router.delete(

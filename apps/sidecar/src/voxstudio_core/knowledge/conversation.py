@@ -2,7 +2,7 @@ import asyncio
 import base64
 from dataclasses import dataclass
 from pathlib import Path
-from typing import AsyncIterator, Protocol
+from typing import AsyncIterator, Literal, Protocol
 from uuid import uuid4
 
 from voxstudio_core.knowledge.history import (
@@ -143,13 +143,13 @@ class ConversationService:
         *,
         limit: int = 50,
         offset: int = 0,
-        include_archived: bool = True,
+        archived: Literal["any", "active", "archived"] = "any",
     ) -> tuple[Conversation, ...]:
         repository = self._require_conversations()
         return await repository.list(
             limit=limit,
             offset=offset,
-            include_archived=include_archived,
+            archived=archived,
         )
 
     async def get_conversation(self, conversation_id: str) -> Conversation:
@@ -189,17 +189,22 @@ class ConversationService:
         *,
         query: str,
         limit: int = 50,
+        offset: int = 0,
     ) -> tuple[Conversation, ...]:
         repository = self._require_conversations()
-        return await repository.search(query=query, limit=limit)
+        return await repository.search(query=query, limit=limit, offset=offset)
 
     async def count_conversations(
         self,
         *,
         include_deleted: bool = False,
+        archived: Literal["any", "active", "archived"] = "any",
     ) -> int:
         repository = self._require_conversations()
-        return await repository.count(include_deleted=include_deleted)
+        return await repository.count(
+            include_deleted=include_deleted,
+            archived=archived,
+        )
 
     async def list_conversation_messages(
         self,

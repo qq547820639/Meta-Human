@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from voxstudio_core.persistence.build_job_repository import (
     BuildJob,
     BuildJobNotFoundError,
+    CleanupState,
 )
 from voxstudio_core.persistence.digital_human_repository import (
     DigitalHuman,
@@ -43,9 +44,20 @@ class BuildJobResponse(BaseModel):
     cancelled: bool
     digital_human_id: str | None = None
     mode: str = "new"
+    provider: str | None = None
+    remote_resource_id: str | None = None
+    cleanup_state: str = "none"
+    last_error: str | None = None
     created_at: str
     updated_at: str
     completed_at: str | None = None
+
+
+class BuildJobHistoryResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    jobs: tuple[BuildJobResponse, ...]
+    has_more: bool
 
 
 class DigitalHumanResponse(BaseModel):
@@ -66,6 +78,14 @@ class DigitalHumanResponse(BaseModel):
     remote_status: str | None = None
     created_at: str
     updated_at: str
+
+
+class DigitalHumanListResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    humans: tuple[DigitalHumanResponse, ...]
+    total: int = 0
+    has_more: bool = False
 
 
 class RenameDigitalHumanRequest(BaseModel):
@@ -201,11 +221,20 @@ def create_avatar_router(
 
     @router.get(
         "/v1/avatar/humans",
-        response_model=tuple[DigitalHumanResponse, ...],
+        response_model=DigitalHumanListResponse,
     )
-    async def list_humans() -> tuple[DigitalHumanResponse, ...]:
-        humans = await digital_humans.list()
-        return tuple(_human_response(human) for human in humans)
+    async def list_humans(
+        limit: int = Query(default=100, ge=1, le=200),
+        offset: int = Query(default=0, ge=0),
+    ) -> DigitalHumanListResponse:
+        humans = await digital_humans.list(limit=limit + 1, offset=offset)
+        total = await digital_humans.count()
+        has_more = len(humans) > limit
+        return DigitalHumanListResponse(
+            humans=tuple(_human_response(human) for human in humans[:limit]),
+            total=total,
+            has_more=has_more,
+        )
 
     @router.get(
         "/v1/avatar/humans/default",
@@ -228,6 +257,48 @@ def create_avatar_router(
                 detail=str(error),
             ) from error
         return _human_response(human)
+
+    @router.get(
+        "/v1/avatar/humans/{human_id}/job",
+        response_model=BuildJobResponse | None,
+    )
+    async def latest_human_job(human_id: str) -> BuildJobResponse | None:
+        try:
+            await digital_humans.get(human_id)
+        except DigitalHumanNotFoundError as error:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=str(error),
+            ) from error
+        job = await build_jobs.latest_for_digital_human(human_id)
+        return None if job is None else _build_job_response(job)
+
+    @router.get(
+        "/v1/avatar/humans/{human_id}/jobs",
+        response_model=BuildJobHistoryResponse,
+    )
+    async def list_human_jobs(
+        human_id: str,
+        limit: int = Query(default=50, ge=1, le=200),
+        offset: int = Query(default=0, ge=0),
+    ) -> BuildJobHistoryResponse:
+        try:
+            await digital_humans.get(human_id)
+        except DigitalHumanNotFoundError as error:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=str(error),
+            ) from error
+        jobs = await build_jobs.list_for_digital_human(
+            human_id, limit=limit + 1, offset=offset
+        )
+        has_more = len(jobs) > limit
+        return BuildJobHistoryResponse(
+            jobs=tuple(
+                _build_job_response(job) for job in jobs[:limit]
+            ),
+            has_more=has_more,
+        )
 
     @router.put(
         "/v1/avatar/humans/{human_id}/default",
@@ -273,12 +344,31 @@ def create_avatar_router(
     )
     async def delete_human(human_id: str) -> Response:
         try:
-            await digital_humans.delete(human_id)
+            human = await digital_humans.get(human_id)
         except DigitalHumanNotFoundError as error:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=str(error),
             ) from error
+        # Honest delete: never delete local record while remote resources are
+        # still pending cleanup. If a build job tracked remote resources whose
+        # cleanup is pending/failed/not-attempted, refuse to delete so the
+        # record stays recoverable instead of pretending cleanup succeeded.
+        if _has_remote_resources(human):
+            job = await build_jobs.latest_for_digital_human(human_id)
+            if job is None:
+                # No tracked build job backs the remote resources; there is no
+                # cleanup interface to gate on, so a local-only delete is honest.
+                pass
+            elif job.cleanup_state is not CleanupState.SUCCEEDED:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=(
+                        "remote cleanup is required before deleting the local "
+                        f"record (cleanup_state={job.cleanup_state.value})"
+                    ),
+                )
+        await digital_humans.delete(human_id)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     @router.post(
@@ -343,11 +433,23 @@ def _build_job_response(job: BuildJob) -> BuildJobResponse:
         cancelled=job.cancelled,
         digital_human_id=job.digital_human_id,
         mode=job.mode,
+        provider=job.provider,
+        remote_resource_id=job.remote_resource_id,
+        cleanup_state=job.cleanup_state.value,
+        last_error=job.last_error,
         created_at=job.created_at.isoformat(),
         updated_at=job.updated_at.isoformat(),
         completed_at=(
             job.completed_at.isoformat() if job.completed_at else None
         ),
+    )
+
+
+def _has_remote_resources(human: DigitalHuman) -> bool:
+    return bool(
+        human.voice_id
+        or human.avatar_id
+        or (human.remote_status is not None and human.remote_status.strip() != "")
     )
 
 

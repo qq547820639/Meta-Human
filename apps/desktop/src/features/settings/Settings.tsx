@@ -48,12 +48,38 @@ const emptySecretFlags: SecretFlags = {
   feishuRefreshTokenSet: false,
 };
 
+/** Per-section validation. Returns a list of human-readable problems. */
+function validateSettings(settings: AppSettings): string[] {
+  const errors: string[] = [];
+  const urlFields: Array<[keyof AppSettings, string]> = [
+    ["localBaseUrl", "本地服务地址"],
+    ["remoteBaseUrl", "远程服务地址"],
+    ["feishuBaseUrl", "飞书服务地址"],
+  ];
+  for (const [field, label] of urlFields) {
+    const value = (settings[field] ?? "") as string;
+    if (value.trim() && !/^https?:\/\//i.test(value.trim())) {
+      errors.push(`${label}必须以 http:// 或 https:// 开头。`);
+    }
+  }
+  const timeout = settings.localTimeoutSeconds;
+  if (typeof timeout === "number" && (timeout < 1 || timeout > 600)) {
+    errors.push("超时秒数必须在 1–600 之间。");
+  }
+  return errors;
+}
+
 interface SettingsProps {
   readonly onSettingsApplied?: () => void;
 }
 
 export default function Settings({ onSettingsApplied }: SettingsProps) {
   const [settings, setSettings] = useState<AppSettings>(emptySettings);
+  const [validationErrors, setValidationErrors] = useState<string[]>([]);
+  // The last snapshot that was successfully loaded or saved; used to detect
+  // dirty state and to roll back the form when a save fails.
+  const [savedSettings, setSavedSettings] =
+    useState<AppSettings>(emptySettings);
   const [secretFlags, setSecretFlags] = useState<SecretFlags>(emptySecretFlags);
   const [remoteApiKey, setRemoteApiKey] = useState("");
   const [feishuAppSecret, setFeishuAppSecret] = useState("");
@@ -79,6 +105,7 @@ export default function Settings({ onSettingsApplied }: SettingsProps) {
       .then((view: AppSettingsView) => {
         if (!active) return;
         setSettings({ ...emptySettings, ...view.settings });
+        setSavedSettings({ ...emptySettings, ...view.settings });
         setSecretFlags({
           remoteApiKeySet: view.remoteApiKeySet,
           feishuAppSecretSet: view.feishuAppSecretSet,
@@ -119,9 +146,19 @@ export default function Settings({ onSettingsApplied }: SettingsProps) {
     }));
   }
 
+  // True when the form differs from the last loaded/saved snapshot, so the user
+  // can see at a glance that there are unsaved changes.
+  const dirty = JSON.stringify(settings) !== JSON.stringify(savedSettings);
+
   async function handleSave() {
     setError(null);
     setStatus(null);
+    const errors = validateSettings(settings);
+    if (errors.length > 0) {
+      setValidationErrors(errors);
+      return;
+    }
+    setValidationErrors([]);
     setSaving(true);
     try {
       await saveAppSettings(settings, {
@@ -131,9 +168,14 @@ export default function Settings({ onSettingsApplied }: SettingsProps) {
         feishuRefreshToken,
       });
     } catch {
+      // Roll back to the last successfully saved/loaded snapshot so a failed
+      // save never leaves the form in a misleading "saved" state.
+      setSettings(savedSettings);
       setError("保存设置失败，请重试。");
+      setSaving(false);
       return;
     }
+    setSavedSettings(settings);
     try {
       await restartSidecar();
       setRemoteApiKey("");
@@ -308,8 +350,13 @@ export default function Settings({ onSettingsApplied }: SettingsProps) {
 
         {status ? <p role="status">{status}</p> : null}
         {error ? <p role="alert">{error}</p> : null}
+        {dirty ? (
+          <p role="status" className="settings-dirty">
+            有未保存的改动。
+          </p>
+        ) : null}
         <button type="button" onClick={() => void handleSave()} disabled={saving}>
-          {saving ? "保存中…" : "保存设置"}
+          {saving ? "保存中…" : dirty ? "保存设置（未保存改动）" : "保存设置"}
         </button>
       </div>
     </section>

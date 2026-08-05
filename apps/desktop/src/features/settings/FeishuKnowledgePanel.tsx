@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import SettingsPanel from "./SettingsPanel";
+import ConfirmDialog from "../../ui/ConfirmDialog";
 import {
   FeishuVerifyStep,
   feishuStepsToState,
@@ -283,19 +284,18 @@ export default function FeishuKnowledgePanel({
           ))}
         </ul>
       )}
-      {confirmingSourceId !== null ? (
-        (() => {
+      <ConfirmDialog
+        open={confirmingSourceId !== null}
+        title="删除知识来源"
+        titleId="delete-source-dialog-title"
+        onClose={onCloseDelete}
+      >
+        {(() => {
           const target = knowledgeSources.find(
             (source) => source.documentId === confirmingSourceId,
           );
           return (
-            <div
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="delete-source-dialog-title"
-              className="conversation-modal"
-            >
-              <h2 id="delete-source-dialog-title">删除知识来源</h2>
+            <>
               <p>
                 确认删除「{target?.title ?? confirmingSourceId}」？此操作不可撤销。
               </p>
@@ -307,10 +307,10 @@ export default function FeishuKnowledgePanel({
                   确认删除
                 </button>
               ) : null}
-            </div>
+            </>
           );
-        })()
-      ) : null}
+        })()}
+      </ConfirmDialog>
     </SettingsPanel>
   );
 }

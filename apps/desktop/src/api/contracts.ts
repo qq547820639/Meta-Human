@@ -63,9 +63,18 @@ export interface BuildJobData {
   readonly cancelled: boolean;
   readonly digital_human_id: string | null;
   readonly mode?: string;
+  readonly provider?: string | null;
+  readonly remote_resource_id?: string | null;
+  readonly cleanup_state?: string;
+  readonly last_error?: string | null;
   readonly created_at: string;
   readonly updated_at: string;
   readonly completed_at: string | null;
+}
+
+export interface BuildJobHistoryData {
+  readonly jobs: readonly BuildJobData[];
+  readonly has_more: boolean;
 }
 
 // --- Conversation ------------------------------------------------------------

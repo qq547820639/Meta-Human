@@ -77,7 +77,11 @@ async def test_knowledge_sources_can_be_listed_and_deleted(
         assert listed.status_code == 200
         assert listed.json()["sources"][0]["title"] == "Guide"
         assert deleted.status_code == 204
-        assert empty.json() == {"sources": []}
+        assert empty.json() == {
+            "sources": [],
+            "total": 0,
+            "has_more": False,
+        }
     finally:
         await database.close()
 
@@ -94,5 +98,50 @@ async def test_knowledge_sources_require_bearer_token(
         async with running_client(token, database) as client:
             response = await client.get("/v1/knowledge/sources")
         assert response.status_code == 401
+    finally:
+        await database.close()
+
+
+@pytest.mark.asyncio
+async def test_knowledge_sources_paginate_without_duplicates(
+    tmp_path: Path,
+) -> None:
+    token = generate_startup_token()
+    database = Database(tmp_path / "api-sources-page.sqlite3")
+    await database.connect()
+    await database.migrate()
+    try:
+        indexer = KnowledgeIndexer(database)
+        for index in range(55):
+            await indexer.upsert_document(
+                document_id=f"doc-{index}",
+                title=f"Doc {index}",
+                content="paragraph.\nparagraph.",
+            )
+        async with running_client(token, database) as client:
+            headers = {"Authorization": f"Bearer {token}"}
+            page1 = await client.get(
+                "/v1/knowledge/sources?limit=50&offset=0",
+                headers=headers,
+            )
+            page2 = await client.get(
+                "/v1/knowledge/sources?limit=50&offset=50",
+                headers=headers,
+            )
+
+        body1 = page1.json()
+        body2 = page2.json()
+        assert page1.status_code == 200
+        assert len(body1["sources"]) == 50
+        assert body1["has_more"] is True
+        assert body1["total"] == 55
+        assert len(body2["sources"]) == 5
+        assert body2["has_more"] is False
+        assert body2["total"] == 55
+
+        ids1 = {source["document_id"] for source in body1["sources"]}
+        ids2 = {source["document_id"] for source in body2["sources"]}
+        assert not (ids1 & ids2), "pages must not overlap (no duplicates)"
+        assert len(ids1 | ids2) == 55
     finally:
         await database.close()

@@ -227,7 +227,7 @@ suite("sidecar E2E (real binary, fetch not mocked)", () => {
     expect(def?.id).toBe(E2E_HUMAN_ID);
 
     const humans = await listHumans();
-    expect(humans.some((h) => h.id === E2E_HUMAN_ID)).toBe(true);
+    expect(humans.humans.some((h) => h.id === E2E_HUMAN_ID)).toBe(true);
 
     const renamed = await renameHuman(E2E_HUMAN_ID, "E2E Renamed");
     expect(renamed.name).toBe("E2E Renamed");
@@ -246,7 +246,7 @@ suite("sidecar E2E (real binary, fetch not mocked)", () => {
     expect(created.name).toBe("E2E Conversation");
 
     const listed = await listConversations();
-    expect(listed.some((c) => c.id === created.id)).toBe(true);
+    expect(listed.items.some((c) => c.id === created.id)).toBe(true);
 
     const detail = await getConversation(created.id);
     expect(detail.id).toBe(created.id);

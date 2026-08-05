@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { ApiError } from "../../api/client";
 import {
   clearConversationHistory,
   listConversationHistory,
@@ -62,18 +63,33 @@ describe("conversationClient", () => {
     );
   });
 
-  it("fails closed when the sidecar rejects the reply", async () => {
+  it("fails closed with a unified ApiError when the sidecar rejects the reply", async () => {
     vi.mocked(invoke).mockResolvedValue(connection);
     vi.stubGlobal(
       "fetch",
       vi.fn<typeof fetch>().mockResolvedValue(
-        new Response("{}", { status: 503 }),
+        new Response(
+          JSON.stringify({
+            code: "provider_busy",
+            message: "服务繁忙",
+            retryable: true,
+            request_id: "req-1",
+            recommended_action: "请稍后重试。",
+          }),
+          { status: 503, headers: { "Content-Type": "application/json" } },
+        ),
       ),
     );
 
-    await expect(postConversationReply("你好")).rejects.toThrow(
-      "对话服务暂时无法回复。",
-    );
+    const error = await postConversationReply("你好").catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(ApiError);
+    expect((error as ApiError).code).toBe("provider_busy");
+    expect((error as ApiError).message).toBe("服务繁忙");
+    expect((error as ApiError).retryable).toBe(true);
+    expect((error as ApiError).requestId).toBe("req-1");
+    expect((error as ApiError).recommendedAction).toBe("请稍后重试。");
+    expect((error as ApiError).status).toBe(503);
   });
 
   it("transcribes a captured recording through the sidecar", async () => {

@@ -7,7 +7,10 @@ from httpx import ASGITransport, AsyncClient
 
 from voxstudio_core.api.app import create_app
 from voxstudio_core.config import SidecarConfig, generate_startup_token
-from voxstudio_core.persistence.build_job_repository import BuildJobRepository
+from voxstudio_core.persistence.build_job_repository import (
+    BuildJobRepository,
+    CleanupState,
+)
 from voxstudio_core.persistence.database import Database
 from voxstudio_core.persistence.digital_human_repository import (
     DigitalHumanRepository,
@@ -57,6 +60,14 @@ class FailingEnrollRemoteClient(StubRemoteClient):
         if self.fail_voice:
             raise RuntimeError("voice enrollment failed")
         return await super().enroll_voice(audio=audio)
+
+
+class FailingAvatarRemoteClient(StubRemoteClient):
+    """Voice enrollment succeeds (so the human gains a remote voice id) but
+    avatar enrollment fails, leaving the job FAILED and cleanable."""
+
+    async def enroll_avatar(self, *, image: bytes) -> str:
+        raise RuntimeError("avatar enrollment failed")
 
 
 class EmptyLifecycle:
@@ -157,7 +168,7 @@ async def test_build_job_flow_creates_and_persists_human(
 
     assert status.json()["status"] == "succeeded"
     assert listing.status_code == 200
-    assert [h["id"] for h in listing.json()] == [human.id]
+    assert [h["id"] for h in listing.json()["humans"]] == [human.id]
     assert default.json()["id"] == human.id
 
 
@@ -470,3 +481,149 @@ async def test_copy_creates_new_record_from_job_materials(tmp_path: Path) -> Non
     assert copy_record.voice_id == "voice-1"
     assert copy_record.avatar_id == "avatar-1"
     assert copy_record.is_default is False
+
+
+@pytest.mark.asyncio
+async def test_per_human_job_latest_and_history_are_scoped(tmp_path: Path) -> None:
+    token = generate_startup_token()
+    database = Database(tmp_path / "avatar.sqlite3")
+    await database.connect()
+    await database.migrate()
+    humans = DigitalHumanRepository(database)
+    remote = StubRemoteClient()
+    build_jobs = BuildJobService(
+        repository=BuildJobRepository(database),
+        digital_humans=humans,
+        client=remote,
+    )
+    portrait = tmp_path / "p.jpg"
+    recording = tmp_path / "v.wav"
+    portrait.write_bytes(b"img")
+    recording.write_bytes(b"aud")
+    try:
+        async with running_client(
+            token, database, build_jobs, humans, remote
+        ) as client:
+            bob = await humans.create(name="Bob")
+            alice = await humans.create(name="Alice")
+            job = await client.post(
+                "/v1/avatar/jobs",
+                headers=authorization(token),
+                json={
+                    "portrait_path": str(portrait),
+                    "recording_path": str(recording),
+                    "digital_human_id": bob.id,
+                },
+            )
+            assert job.status_code == 202
+            job_id = job.json()["id"]
+            await _wait_for_terminal(client, token, job_id)
+
+            bob_latest = await client.get(
+                f"/v1/avatar/humans/{bob.id}/job",
+                headers=authorization(token),
+            )
+            bob_history = await client.get(
+                f"/v1/avatar/humans/{bob.id}/jobs",
+                headers=authorization(token),
+            )
+            alice_latest = await client.get(
+                f"/v1/avatar/humans/{alice.id}/job",
+                headers=authorization(token),
+            )
+            missing = await client.get(
+                "/v1/avatar/humans/nope/job",
+                headers=authorization(token),
+            )
+    finally:
+        await database.close()
+
+    assert bob_latest.status_code == 200
+    assert bob_latest.json()["id"] == job_id
+    assert bob_latest.json()["digital_human_id"] == bob.id
+    assert bob_latest.json()["cleanup_state"] == "none"
+
+    assert bob_history.status_code == 200
+    assert [j["id"] for j in bob_history.json()["jobs"]] == [job_id]
+    assert bob_history.json()["has_more"] is False
+
+    assert alice_latest.status_code == 200
+    assert alice_latest.json() is None
+
+    assert missing.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_delete_refuses_until_remote_cleanup_succeeded(tmp_path: Path) -> None:
+    """Deleting a human with remote resources is refused until the tracked
+    build job reports cleanup_state == succeeded; a failed/pending cleanup is a
+    recoverable state, never reported as a completed delete."""
+    token = generate_startup_token()
+    database = Database(tmp_path / "avatar.sqlite3")
+    await database.connect()
+    await database.migrate()
+    humans = DigitalHumanRepository(database)
+    # Avatar enrollment fails -> the job is FAILED and cleanable, while the
+    # human still owns a remote voice resource.
+    remote = FailingAvatarRemoteClient()
+    build_jobs = BuildJobService(
+        repository=BuildJobRepository(database),
+        digital_humans=humans,
+        client=remote,
+    )
+    portrait = tmp_path / "p.jpg"
+    recording = tmp_path / "v.wav"
+    portrait.write_bytes(b"img")
+    recording.write_bytes(b"aud")
+    try:
+        async with running_client(
+            token, database, build_jobs, humans, remote
+        ) as client:
+            human = await humans.create(name="Bob")
+            job = await client.post(
+                "/v1/avatar/jobs",
+                headers=authorization(token),
+                json={
+                    "portrait_path": str(portrait),
+                    "recording_path": str(recording),
+                    "digital_human_id": human.id,
+                },
+            )
+            assert job.status_code == 202
+            job_id = job.json()["id"]
+            await _wait_for_terminal(client, token, job_id)
+
+            # Remote resources exist and cleanup has not run -> refuse delete.
+            refused = await client.delete(
+                f"/v1/avatar/humans/{human.id}",
+                headers=authorization(token),
+            )
+            assert refused.status_code == 409
+            # Local record must still exist (recoverable, not faked as deleted).
+            still_there = await client.get(
+                f"/v1/avatar/humans/{human.id}",
+                headers=authorization(token),
+            )
+            assert still_there.status_code == 200
+
+            # Run cleanup; it succeeds against the stub provider.
+            cleaned = await client.post(
+                f"/v1/avatar/jobs/{job_id}/cleanup",
+                headers=authorization(token),
+            )
+            assert cleaned.status_code == 200
+            await _wait_for_terminal(client, token, job_id)
+            job_state = await client.get(
+                f"/v1/avatar/jobs/{job_id}",
+                headers=authorization(token),
+            )
+            assert job_state.json()["cleanup_state"] == CleanupState.SUCCEEDED.value
+
+            # Now delete is allowed.
+            deleted = await client.delete(
+                f"/v1/avatar/humans/{human.id}",
+                headers=authorization(token),
+            )
+            assert deleted.status_code == 204
+    finally:
+        await database.close()

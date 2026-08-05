@@ -1,4 +1,4 @@
-import { apiRequest } from "../../api/client";
+import { ApiError, apiRequest } from "../../api/client";
 import type {
   ConversationData,
   ConversationMessageData,
@@ -36,6 +36,24 @@ export interface ConversationMessagesPage {
   readonly messages: readonly ConversationMessage[];
   readonly nextCursor: string | null;
   readonly hasMore: boolean;
+}
+
+/**
+ * A server-paginated page of conversations. `items` holds a single page
+ * (``limit`` items), `hasMore` tells the UI whether another page exists, and
+ * `total` is the total number of matching conversations across all pages.
+ */
+export interface ConversationListPage {
+  readonly items: readonly ConversationSummary[];
+  readonly hasMore: boolean;
+  readonly total: number;
+}
+
+export interface ConversationListOptions {
+  readonly limit?: number;
+  readonly offset?: number;
+  readonly archived?: "any" | "active" | "archived";
+  readonly signal?: AbortSignal;
 }
 
 type RawConversation = Partial<ConversationData>;
@@ -102,19 +120,49 @@ function parseMessages(raw: unknown): readonly ConversationMessage[] {
     }));
 }
 
-export async function listConversations(): Promise<readonly ConversationSummary[]> {
-  const body = await apiRequest<unknown>({ path: "/v1/conversations" });
-  return parseList(body);
+export async function listConversations(
+  options: ConversationListOptions = {},
+): Promise<ConversationListPage> {
+  const body = await apiRequest<{
+    conversations?: unknown[];
+    has_more?: boolean;
+    total?: number;
+  }>({
+    path: "/v1/conversations",
+    query: {
+      limit: options.limit,
+      offset: options.offset,
+      archived: options.archived,
+    },
+    signal: options.signal,
+  });
+  const items = parseList(body);
+  return {
+    items,
+    hasMore: body.has_more === true,
+    total: typeof body.total === "number" ? body.total : items.length,
+  };
 }
 
 export async function searchConversations(
   query: string,
-): Promise<readonly ConversationSummary[]> {
-  const body = await apiRequest<unknown>({
+  options: Omit<ConversationListOptions, "archived"> = {},
+): Promise<ConversationListPage> {
+  const body = await apiRequest<{
+    conversations?: unknown[];
+    has_more?: boolean;
+    total?: number;
+  }>({
     path: "/v1/conversations/search",
-    query: { q: query },
+    query: { q: query, limit: options.limit, offset: options.offset },
+    signal: options.signal,
   });
-  return parseList(body);
+  const items = parseList(body);
+  return {
+    items,
+    hasMore: body.has_more === true,
+    total: typeof body.total === "number" ? body.total : items.length,
+  };
 }
 
 export async function createConversation(
@@ -163,7 +211,16 @@ export async function listConversationMessages(
   // silently fall back to an empty list, otherwise empty conversations would
   // mask a real contract break.
   if (!Array.isArray(body.messages)) {
-    throw new Error("对话消息接口返回格式异常，请检查服务版本。");
+    throw new ApiError(
+      {
+        code: "invalid_response",
+        message: "对话消息接口返回格式异常，请检查服务版本。",
+        retryable: false,
+        request_id: "",
+        recommended_action: "请检查服务版本后重试。",
+      },
+      0,
+    );
   }
   return {
     messages: parseMessages(body.messages),

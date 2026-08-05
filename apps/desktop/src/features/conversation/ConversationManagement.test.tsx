@@ -21,6 +21,7 @@ import {
   searchConversations,
   unarchiveConversation,
 } from "./conversationManagementClient";
+import type { ConversationListPage } from "./conversationManagementClient";
 
 vi.mock("./conversationManagementClient", () => ({
   listConversations: vi.fn(),
@@ -32,6 +33,11 @@ vi.mock("./conversationManagementClient", () => ({
   unarchiveConversation: vi.fn(),
   deleteConversation: vi.fn(),
   clearConversationMessages: vi.fn(),
+}));
+
+const invokeMock = vi.fn();
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: (...args: unknown[]) => invokeMock(...args),
 }));
 
 const apiError = new ApiError(
@@ -67,10 +73,14 @@ afterEach(() => {
 
 describe("ConversationManagement", () => {
   it("lists conversations and notifies when one is selected", async () => {
-    vi.mocked(listConversations).mockResolvedValue([
-      { id: "conv-1", name: "对话一" },
-      { id: "conv-2", name: "对话二" },
-    ]);
+    vi.mocked(listConversations).mockResolvedValue({
+      items: [
+        { id: "conv-1", name: "对话一" },
+        { id: "conv-2", name: "对话二" },
+      ],
+      hasMore: false,
+      total: 2,
+    });
     const onSelect = vi.fn();
 
     render(<ConversationManagement onSelect={onSelect} />);
@@ -83,11 +93,17 @@ describe("ConversationManagement", () => {
     );
   });
 
-  it("debounces search and coalesces rapid keystrokes", async () => {
-    vi.mocked(listConversations).mockResolvedValue([]);
-    vi.mocked(searchConversations).mockResolvedValue([
-      { id: "conv-1", name: "知识库" },
-    ]);
+  it("debounces search, coalesces keystrokes and cancels the stale request", async () => {
+    vi.mocked(listConversations).mockResolvedValue({
+      items: [],
+      hasMore: false,
+      total: 0,
+    });
+    vi.mocked(searchConversations).mockResolvedValue({
+      items: [{ id: "conv-1", name: "知识库" }],
+      hasMore: false,
+      total: 1,
+    });
 
     render(<ConversationManagement />);
     await flush();
@@ -104,14 +120,16 @@ describe("ConversationManagement", () => {
       vi.advanceTimersByTime(500);
     });
     expect(searchConversations).toHaveBeenCalledTimes(1);
-    expect(searchConversations).toHaveBeenCalledWith("ab");
+    expect(searchConversations).toHaveBeenCalledWith(
+      "ab",
+      expect.objectContaining({ limit: 20, offset: 0, signal: expect.anything() }),
+    );
     await flush();
     expect(screen.getByText("知识库")).toBeInTheDocument();
   });
 
   it("ignores a stale, late-returning search result", async () => {
-    let resolveList: ((v: readonly { id: string; name: string }[]) => void) | null =
-      null;
+    let resolveList: ((v: ConversationListPage) => void) | null = null;
     vi.mocked(listConversations).mockImplementation(
       () =>
         new Promise((resolve) => {
@@ -122,8 +140,7 @@ describe("ConversationManagement", () => {
     await flush();
 
     const input = screen.getByLabelText("搜索对话");
-    let resolveSearchA: ((v: readonly { id: string; name: string }[]) => void) | null =
-      null;
+    let resolveSearchA: ((v: ConversationListPage) => void) | null = null;
     vi.mocked(searchConversations).mockImplementationOnce(
       () =>
         new Promise((resolve) => {
@@ -134,10 +151,12 @@ describe("ConversationManagement", () => {
     await act(async () => {
       vi.advanceTimersByTime(250);
     });
-    expect(searchConversations).toHaveBeenCalledWith("a");
+    expect(searchConversations).toHaveBeenCalledWith(
+      "a",
+      expect.anything(),
+    );
 
-    let resolveSearchAb: ((v: readonly { id: string; name: string }[]) => void) | null =
-      null;
+    let resolveSearchAb: ((v: ConversationListPage) => void) | null = null;
     vi.mocked(searchConversations).mockImplementationOnce(
       () =>
         new Promise((resolve) => {
@@ -148,27 +167,41 @@ describe("ConversationManagement", () => {
     await act(async () => {
       vi.advanceTimersByTime(250);
     });
-    expect(searchConversations).toHaveBeenCalledWith("ab");
+    expect(searchConversations).toHaveBeenCalledWith(
+      "ab",
+      expect.anything(),
+    );
 
     // The NEWER request resolves first.
     await act(async () => {
-      resolveSearchAb?.([{ id: "b", name: "结果B" }]);
+      resolveSearchAb?.({ items: [{ id: "b", name: "结果B" }], hasMore: false, total: 1 });
     });
     expect(screen.getByText("结果B")).toBeInTheDocument();
 
     // The OLDER request resolves late; it must be ignored.
     await act(async () => {
-      resolveSearchA?.([{ id: "a", name: "结果A" }]);
+      resolveSearchA?.({ items: [{ id: "a", name: "结果A" }], hasMore: false, total: 1 });
     });
     expect(screen.queryByText("结果A")).not.toBeInTheDocument();
     expect(screen.getByText("结果B")).toBeInTheDocument();
   });
 
   it("filters between active and archived conversations", async () => {
-    vi.mocked(listConversations).mockResolvedValue([
-      { id: "a", name: "活跃A" },
-      { id: "b", name: "归档B", archived: true },
-    ]);
+    vi.mocked(listConversations).mockImplementation(async (options) => {
+      const archived = options?.archived ?? "active";
+      if (archived === "archived") {
+        return {
+          items: [{ id: "b", name: "归档B", archived: true }],
+          hasMore: false,
+          total: 1,
+        };
+      }
+      return {
+        items: [{ id: "a", name: "活跃A" }],
+        hasMore: false,
+        total: 1,
+      };
+    });
 
     render(<ConversationManagement />);
     await flush();
@@ -183,8 +216,7 @@ describe("ConversationManagement", () => {
   });
 
   it("shows loading and empty states", async () => {
-    let resolveList: ((v: readonly { id: string; name: string }[]) => void) | null =
-      null;
+    let resolveList: ((v: ConversationListPage) => void) | null = null;
     vi.mocked(listConversations).mockImplementation(
       () =>
         new Promise((resolve) => {
@@ -196,7 +228,7 @@ describe("ConversationManagement", () => {
     expect(screen.getByText("正在加载对话…")).toBeInTheDocument();
 
     await act(async () => {
-      resolveList?.([]);
+      resolveList?.({ items: [], hasMore: false, total: 0 });
     });
     expect(screen.getByText("暂无活跃会话。")).toBeInTheDocument();
   });
@@ -211,21 +243,36 @@ describe("ConversationManagement", () => {
     expect(screen.getByText("请求 ID：req-1")).toBeInTheDocument();
 
     // Retry recovers.
-    vi.mocked(listConversations).mockResolvedValueOnce([
-      { id: "a", name: "恢复" },
-    ]);
+    vi.mocked(listConversations).mockResolvedValueOnce({
+      items: [{ id: "a", name: "恢复" }],
+      hasMore: false,
+      total: 1,
+    });
     fireEvent.click(screen.getByRole("button", { name: "重试" }));
     await flush();
     expect(screen.getByText("恢复")).toBeInTheDocument();
   });
 
-  it("paginates a long list via a load-more button", async () => {
-    vi.mocked(listConversations).mockResolvedValue(
-      Array.from({ length: 25 }, (_, i) => ({
-        id: `c${i}`,
-        name: `会话${i}`,
-      })),
-    );
+  it("loads more by hitting the server for the next page (offset-based)", async () => {
+    const firstPage = Array.from({ length: 20 }, (_, i) => ({
+      id: `c${i}`,
+      name: `会话${i}`,
+    }));
+    const secondPage = Array.from({ length: 5 }, (_, i) => ({
+      id: `c${i + 20}`,
+      name: `会话${i + 20}`,
+    }));
+    vi.mocked(listConversations)
+      .mockResolvedValueOnce({
+        items: firstPage,
+        hasMore: true,
+        total: 25,
+      })
+      .mockResolvedValueOnce({
+        items: secondPage,
+        hasMore: false,
+        total: 25,
+      });
 
     render(<ConversationManagement />);
     await flush();
@@ -235,13 +282,20 @@ describe("ConversationManagement", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "加载更多" }));
     await flush();
+
+    // The second request must carry the correct server offset (items fetched).
+    expect(listConversations).toHaveBeenLastCalledWith(
+      expect.objectContaining({ limit: 20, offset: 20 }),
+    );
     expect(screen.getByText("会话24")).toBeInTheDocument();
   });
 
   it("renames a conversation through the sidecar", async () => {
-    vi.mocked(listConversations).mockResolvedValue([
-      { id: "conv-1", name: "旧名字" },
-    ]);
+    vi.mocked(listConversations).mockResolvedValue({
+      items: [{ id: "conv-1", name: "旧名字" }],
+      hasMore: false,
+      total: 1,
+    });
     vi.mocked(renameConversation).mockResolvedValue(undefined);
 
     render(<ConversationManagement />);
@@ -256,10 +310,14 @@ describe("ConversationManagement", () => {
   });
 
   it("archives and unarchives a conversation", async () => {
-    vi.mocked(listConversations).mockResolvedValue([
-      { id: "conv-1", name: "对话一", archived: true },
-      { id: "conv-2", name: "对话二" },
-    ]);
+    vi.mocked(listConversations).mockResolvedValue({
+      items: [
+        { id: "conv-1", name: "对话一", archived: true },
+        { id: "conv-2", name: "对话二" },
+      ],
+      hasMore: false,
+      total: 2,
+    });
     vi.mocked(unarchiveConversation).mockResolvedValue(undefined);
     vi.mocked(archiveConversation).mockResolvedValue(undefined);
 
@@ -278,9 +336,11 @@ describe("ConversationManagement", () => {
   });
 
   it("clears a conversation through a confirmation dialog", async () => {
-    vi.mocked(listConversations).mockResolvedValue([
-      { id: "conv-1", name: "对话一" },
-    ]);
+    vi.mocked(listConversations).mockResolvedValue({
+      items: [{ id: "conv-1", name: "对话一" }],
+      hasMore: false,
+      total: 1,
+    });
     vi.mocked(clearConversationMessages).mockResolvedValue(undefined);
     const onCleared = vi.fn();
 
@@ -290,7 +350,7 @@ describe("ConversationManagement", () => {
     fireEvent.click(screen.getByRole("button", { name: "清空" }));
     const dialog = screen.getByRole("dialog");
     expect(
-      within(dialog).getByText("确认清空「对话一」的全部消息？"),
+      within(dialog).getByText(/确认清空「对话一」的全部消息？/),
     ).toBeInTheDocument();
     // Clearing must not happen until the user confirms.
     expect(clearConversationMessages).not.toHaveBeenCalled();
@@ -302,9 +362,11 @@ describe("ConversationManagement", () => {
   });
 
   it("deletes a conversation through a confirmation dialog", async () => {
-    vi.mocked(listConversations).mockResolvedValue([
-      { id: "conv-1", name: "对话一" },
-    ]);
+    vi.mocked(listConversations).mockResolvedValue({
+      items: [{ id: "conv-1", name: "对话一" }],
+      hasMore: false,
+      total: 1,
+    });
     vi.mocked(deleteConversation).mockResolvedValue(undefined);
     const onDeleted = vi.fn();
 
@@ -322,10 +384,35 @@ describe("ConversationManagement", () => {
     expect(screen.queryByText("对话一")).not.toBeInTheDocument();
   });
 
+  it("closes the delete dialog on Escape and restores focus to the trigger", async () => {
+    vi.mocked(listConversations).mockResolvedValue({
+      items: [{ id: "conv-1", name: "对话一" }],
+      hasMore: false,
+      total: 1,
+    });
+
+    render(<ConversationManagement />);
+    await flush();
+
+    const deleteButton = screen.getByRole("button", { name: "删除" });
+    deleteButton.focus();
+    fireEvent.click(deleteButton);
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toHaveAttribute("aria-modal", "true");
+    expect(dialog).toHaveAttribute("aria-labelledby", "delete-dialog-title");
+
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    await flush();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(deleteButton).toHaveFocus();
+  });
+
   it("rolls the list back when a delete fails", async () => {
-    vi.mocked(listConversations).mockResolvedValue([
-      { id: "conv-1", name: "对话一" },
-    ]);
+    vi.mocked(listConversations).mockResolvedValue({
+      items: [{ id: "conv-1", name: "对话一" }],
+      hasMore: false,
+      total: 1,
+    });
     vi.mocked(deleteConversation).mockRejectedValueOnce(apiError);
     const onDeleted = vi.fn();
 
@@ -344,10 +431,14 @@ describe("ConversationManagement", () => {
   });
 
   it("highlights the current conversation", async () => {
-    vi.mocked(listConversations).mockResolvedValue([
-      { id: "conv-1", name: "对话一" },
-      { id: "conv-2", name: "对话二" },
-    ]);
+    vi.mocked(listConversations).mockResolvedValue({
+      items: [
+        { id: "conv-1", name: "对话一" },
+        { id: "conv-2", name: "对话二" },
+      ],
+      hasMore: false,
+      total: 2,
+    });
 
     render(<ConversationManagement selectedId="conv-1" />);
     await flush();
@@ -361,10 +452,14 @@ describe("ConversationManagement", () => {
   });
 
   it("supports keyboard navigation (arrows, Enter, Delete)", async () => {
-    vi.mocked(listConversations).mockResolvedValue([
-      { id: "a", name: "A" },
-      { id: "b", name: "B" },
-    ]);
+    vi.mocked(listConversations).mockResolvedValue({
+      items: [
+        { id: "a", name: "A" },
+        { id: "b", name: "B" },
+      ],
+      hasMore: false,
+      total: 2,
+    });
     const onSelect = vi.fn();
 
     render(<ConversationManagement onSelect={onSelect} />);
@@ -382,7 +477,11 @@ describe("ConversationManagement", () => {
   });
 
   it("focuses the search input after creating a conversation", async () => {
-    vi.mocked(listConversations).mockResolvedValue([]);
+    vi.mocked(listConversations).mockResolvedValue({
+      items: [],
+      hasMore: false,
+      total: 0,
+    });
     vi.mocked(createConversation).mockResolvedValue({
       id: "conv-new",
       name: "新对话",
@@ -400,44 +499,71 @@ describe("ConversationManagement", () => {
     expect(screen.getByLabelText("搜索对话")).toHaveFocus();
   });
 
-  it("exports the current conversation as text", async () => {
-    vi.mocked(listConversations).mockResolvedValue([]);
+  it("exports the current conversation as Markdown via the native save dialog", async () => {
+    vi.mocked(listConversations).mockResolvedValue({
+      items: [],
+      hasMore: false,
+      total: 0,
+    });
     vi.mocked(getConversation).mockResolvedValue({
       id: "conv-1",
       name: "对话一",
       messages: [
         { role: "user", content: "你好" },
-        { role: "assistant", content: "嗨" },
+        { role: "assistant", content: "嗨", citations: ["来源一"] },
       ],
     });
-    const createObjectURL = vi.fn(() => "blob:test");
-    const originalCreateObjectURL = URL.createObjectURL;
-    const originalRevokeObjectURL = URL.revokeObjectURL;
-    Object.defineProperty(URL, "createObjectURL", {
-      value: createObjectURL,
-      writable: true,
-    });
-    Object.defineProperty(URL, "revokeObjectURL", {
-      value: vi.fn(),
-      writable: true,
-    });
+    invokeMock.mockResolvedValue("/tmp/对话一.md");
 
     render(<ConversationManagement selectedId="conv-1" />);
     await flush();
 
-    fireEvent.click(screen.getByRole("button", { name: "导出当前会话" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "导出当前会话（Markdown）" }),
+    );
     await flush();
     expect(getConversation).toHaveBeenCalledWith("conv-1");
-    expect(createObjectURL).toHaveBeenCalled();
+    expect(invokeMock).toHaveBeenCalledWith(
+      "save_text_file",
+      expect.objectContaining({ defaultName: "对话一.md" }),
+    );
+    const content = invokeMock.mock.calls.at(-1)?.[1]?.content as string;
+    expect(content).toContain("# 对话一");
+    expect(content).toContain("你好");
+    expect(content).toContain("来源：");
+  });
 
-    // Restore the original URL methods.
-    Object.defineProperty(URL, "createObjectURL", {
-      value: originalCreateObjectURL,
-      writable: true,
+  it("exports the current conversation as JSON via the native save dialog", async () => {
+    vi.mocked(listConversations).mockResolvedValue({
+      items: [],
+      hasMore: false,
+      total: 0,
     });
-    Object.defineProperty(URL, "revokeObjectURL", {
-      value: originalRevokeObjectURL,
-      writable: true,
+    vi.mocked(getConversation).mockResolvedValue({
+      id: "conv-1",
+      name: "对话一",
+      messages: [
+        { role: "user", content: "你好" },
+        { role: "assistant", content: "嗨", citations: ["来源一"] },
+      ],
     });
+    invokeMock.mockResolvedValue("/tmp/对话一.json");
+
+    render(<ConversationManagement selectedId="conv-1" />);
+    await flush();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "导出当前会话（JSON）" }),
+    );
+    await flush();
+    expect(invokeMock).toHaveBeenCalledWith(
+      "save_text_file",
+      expect.objectContaining({ defaultName: "对话一.json" }),
+    );
+    const content = invokeMock.mock.calls.at(-1)?.[1]?.content as string;
+    const parsed = JSON.parse(content);
+    expect(parsed.conversation.name).toBe("对话一");
+    expect(parsed.messages[0].text).toBe("你好");
+    expect(parsed.messages[1].citations).toEqual(["来源一"]);
   });
 });

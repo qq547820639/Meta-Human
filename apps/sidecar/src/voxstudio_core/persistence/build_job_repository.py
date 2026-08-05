@@ -30,6 +30,21 @@ class BuildStage(str, Enum):
     CLEANUP = "cleanup"
 
 
+class CleanupState(str, Enum):
+    """Lifecycle of a build job's remote-resource cleanup.
+
+    ``NONE`` means no remote resources were created (or cleanup was never
+    requested). ``PENDING``/``FAILED`` mark a job whose remote resources still
+    need to be released — a recoverable state, never confused with completion.
+    ``SUCCEEDED`` means the remote cleanup interface was invoked and succeeded.
+    """
+
+    NONE = "none"
+    PENDING = "pending"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+
+
 class BuildJobNotFoundError(LookupError):
     pass
 
@@ -66,6 +81,10 @@ class BuildJob:
     mode: str = "new"
     staging_voice_id: str | None = None
     staging_avatar_id: str | None = None
+    provider: str | None = None
+    remote_resource_id: str | None = None
+    cleanup_state: CleanupState = CleanupState.NONE
+    last_error: str | None = None
 
 
 class BuildJobRepository:
@@ -84,6 +103,7 @@ class BuildJobRepository:
         mode: str = "new",
         staging_voice_id: str | None = None,
         staging_avatar_id: str | None = None,
+        provider: str | None = None,
     ) -> BuildJob:
         resolved_id = job_id or str(uuid4())
         resolved_created_at = created_at or datetime.now(UTC)
@@ -104,8 +124,9 @@ class BuildJobRepository:
                     current_stage, status, stage_progress, succeeded_stages,
                     retry_count, error_code, error_detail, cancelled,
                     portrait_path, recording_path, created_at, updated_at,
-                    completed_at, mode, staging_voice_id, staging_avatar_id
-                ) VALUES (?, ?, ?, ?, ?, NULL, ?, 0, NULL, NULL, 0, ?, ?, ?, ?, NULL, ?, ?, ?)
+                    completed_at, mode, staging_voice_id, staging_avatar_id,
+                    provider, cleanup_state
+                ) VALUES (?, ?, ?, ?, ?, NULL, ?, 0, NULL, NULL, 0, ?, ?, ?, ?, NULL, ?, ?, ?, ?, 'none')
                 """,
                 (
                     resolved_id,
@@ -121,6 +142,7 @@ class BuildJobRepository:
                     mode,
                     staging_voice_id,
                     staging_avatar_id,
+                    provider,
                 ),
             )
             return await _load(connection, resolved_id)
@@ -160,6 +182,46 @@ class BuildJobRepository:
                 rows = await cursor.fetchall()
         return tuple(_from_row(row) for row in rows)
 
+    async def latest_for_digital_human(
+        self, digital_human_id: str
+    ) -> BuildJob | None:
+        async with self._database.transaction(immediate=False) as connection:
+            async with connection.execute(
+                """
+                SELECT * FROM build_jobs
+                WHERE digital_human_id = ?
+                ORDER BY updated_at DESC, id DESC
+                LIMIT 1
+                """,
+                (digital_human_id,),
+            ) as cursor:
+                row = await cursor.fetchone()
+        return None if row is None else _from_row(row)
+
+    async def list_for_digital_human(
+        self,
+        digital_human_id: str,
+        *,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[BuildJob, ...]:
+        if limit < 1:
+            raise ValueError("limit must be >= 1")
+        if offset < 0:
+            raise ValueError("offset must be >= 0")
+        async with self._database.transaction(immediate=False) as connection:
+            async with connection.execute(
+                """
+                SELECT * FROM build_jobs
+                WHERE digital_human_id = ?
+                ORDER BY updated_at DESC, id DESC
+                LIMIT ? OFFSET ?
+                """,
+                (digital_human_id, limit, offset),
+            ) as cursor:
+                rows = await cursor.fetchall()
+        return tuple(_from_row(row) for row in rows)
+
     async def update(
         self,
         job_id: str,
@@ -178,6 +240,10 @@ class BuildJobRepository:
         mode: str | None = None,
         staging_voice_id: str | None = None,
         staging_avatar_id: str | None = None,
+        provider: str | None = None,
+        remote_resource_id: str | None = None,
+        cleanup_state: CleanupState | None = None,
+        last_error: str | None = None,
     ) -> BuildJob:
         timestamp = _serialize_timestamp(updated_at or datetime.now(UTC))
         async with self._database.transaction() as connection:
@@ -197,6 +263,10 @@ class BuildJobRepository:
                     mode = COALESCE(?, mode),
                     staging_voice_id = COALESCE(?, staging_voice_id),
                     staging_avatar_id = COALESCE(?, staging_avatar_id),
+                    provider = COALESCE(?, provider),
+                    remote_resource_id = COALESCE(?, remote_resource_id),
+                    cleanup_state = COALESCE(?, cleanup_state),
+                    last_error = COALESCE(?, last_error),
                     updated_at = ?
                 WHERE id = ?
                 """,
@@ -216,6 +286,10 @@ class BuildJobRepository:
                     mode,
                     staging_voice_id,
                     staging_avatar_id,
+                    provider,
+                    remote_resource_id,
+                    cleanup_state.value if cleanup_state else None,
+                    last_error,
                     timestamp,
                     job_id,
                 ),
@@ -281,6 +355,16 @@ def _from_row(row: aiosqlite.Row) -> BuildJob:
         staging_avatar_id=row["staging_avatar_id"]
         if "staging_avatar_id" in row.keys()
         else None,
+        provider=row["provider"] if "provider" in row.keys() else None,
+        remote_resource_id=row["remote_resource_id"]
+        if "remote_resource_id" in row.keys()
+        else None,
+        cleanup_state=(
+            CleanupState(row["cleanup_state"])
+            if "cleanup_state" in row.keys() and row["cleanup_state"]
+            else CleanupState.NONE
+        ),
+        last_error=row["last_error"] if "last_error" in row.keys() else None,
     )
 
 

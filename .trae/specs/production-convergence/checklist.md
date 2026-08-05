@@ -14,11 +14,11 @@
 - [ ] Task 5 轮询重构：递归 `setTimeout`/调度器；同任务单在途请求；指数退避+抖动；区分失败类型；网络恢复续查；重启恢复；页面隐藏降频；彻底清理
 
 ## P1 稳定性与体验
-- [ ] Task 6 每数字人任务与远程资源关系（按数字人查询任务/历史/重试/清理；保存 provider/remote ID/清理状态/最后错误；失败进入可恢复状态）
-- [ ] Task 7 统一服务端分页（cursor/limit+offset；next_cursor/has_more；前端真实加载更多；51/500 条；虚拟化；搜索防抖+取消）
+- [x] Task 6 每数字人任务与远程资源关系（按数字人查询任务/历史/重试/清理；保存 provider/remote ID/清理状态/最后错误；失败进入可恢复状态）
+- [x] Task 7 统一服务端分页（cursor/limit+offset；next_cursor/has_more；前端真实加载更多；51/500 条；虚拟化；搜索防抖+取消）
 - [ ] Task 8 统一 API 与流式错误（ApiError：code/message/request_id/retryable/recommended_action/HTTP 状态/诊断；SSE 异常也生成 ApiError；按类型提供操作）
-- [ ] Task 9 拆分超大组件与确定性状态机（useConversationController 等 hooks；Timeline/Composer/VoiceControls/RecoveryBanner/CreationWizard/BuildProgress；reducer 状态机+测试）
-- [ ] Task 10 可靠性细节（录音 finally 清理；清空会话先等后端；破坏性操作显示名与影响；导出生成 MD/JSON 含会话名/时间/数字人/模型/消息/引用/版本；设置脏状态/回滚；朗读控制；耗时指标；静默 catch 可观察化；删除旧对话实现）
+- [x] Task 9 拆分超大组件与确定性状态机（useConversationController 等 hooks；Timeline/Composer/VoiceControls/RecoveryBanner/CreationWizard/BuildProgress；reducer 状态机+测试）
+- [x] Task 10 可靠性细节（录音 finally 清理；清空会话先等后端；破坏性操作显示名与影响；导出生成 MD/JSON 含会话名/时间/数字人/模型/消息/引用/版本；设置脏状态/回滚；朗读控制；耗时指标；静默 catch 可观察化；删除旧对话实现）
 - [ ] Task 11 无障碍与键盘（aria-modal/标题关联/焦点锁定/Escape/焦点恢复/Tab 顺序/SR 播报/reduced-motion/键盘操作/对比度）
 
 ## P2 发布工程

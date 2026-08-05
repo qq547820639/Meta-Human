@@ -16,7 +16,16 @@ class KnowledgeSourceStore:
     def __init__(self, database: Database) -> None:
         self._database = database
 
-    async def list_sources(self) -> tuple[KnowledgeSourceEntry, ...]:
+    async def list_sources(
+        self,
+        *,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> tuple[KnowledgeSourceEntry, ...]:
+        if limit < 1:
+            raise ValueError("limit must be >= 1")
+        if offset < 0:
+            raise ValueError("offset must be >= 0")
         async with self._database.transaction(immediate=False) as connection:
             async with connection.execute(
                 """
@@ -30,7 +39,9 @@ class KnowledgeSourceStore:
                 LEFT JOIN knowledge_chunks c ON c.document_id = d.id
                 GROUP BY d.id
                 ORDER BY d.synced_at DESC, d.id
-                """
+                LIMIT ? OFFSET ?
+                """,
+                (limit, offset),
             ) as cursor:
                 rows = await cursor.fetchall()
         return tuple(
@@ -43,6 +54,14 @@ class KnowledgeSourceStore:
             )
             for row in rows
         )
+
+    async def count_sources(self) -> int:
+        async with self._database.transaction(immediate=False) as connection:
+            async with connection.execute(
+                "SELECT COUNT(*) AS total FROM knowledge_documents"
+            ) as cursor:
+                row = await cursor.fetchone()
+        return int(row["total"]) if row is not None else 0
 
     async def delete_source(self, *, document_id: str) -> bool:
         async with self._database.transaction() as connection:

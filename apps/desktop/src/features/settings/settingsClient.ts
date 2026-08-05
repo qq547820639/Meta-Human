@@ -1,5 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 
+import { toApiError } from "../../api/client";
+
 export interface AppSettings {
   readonly localBaseUrl?: string | null;
   readonly localChatModel?: string | null;
@@ -124,7 +126,7 @@ export function exchangeFeishuCode(
       },
     );
     if (!response.ok) {
-      throw new Error("换取 Access Token 失败。");
+      throw await toApiError(response);
     }
     const body = (await response.json()) as {
       access_token: string;

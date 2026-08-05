@@ -90,16 +90,30 @@ class DigitalHumanRepository:
             )
             return await _load(connection, resolved_id)
 
-    async def list(self) -> tuple[DigitalHuman, ...]:
+    async def list(self, *, limit: int = 100, offset: int = 0) -> tuple[DigitalHuman, ...]:
+        if limit < 1:
+            raise ValueError("limit must be >= 1")
+        if offset < 0:
+            raise ValueError("offset must be >= 0")
         async with self._database.transaction(immediate=False) as connection:
             async with connection.execute(
                 """
                 SELECT * FROM digital_humans
                 ORDER BY is_default DESC, updated_at DESC, id DESC
-                """
+                LIMIT ? OFFSET ?
+                """,
+                (limit, offset),
             ) as cursor:
                 rows = await cursor.fetchall()
         return tuple(_from_row(row) for row in rows)
+
+    async def count(self) -> int:
+        async with self._database.transaction(immediate=False) as connection:
+            async with connection.execute(
+                "SELECT COUNT(*) AS total FROM digital_humans"
+            ) as cursor:
+                row = await cursor.fetchone()
+        return int(row["total"]) if row is not None else 0
 
     async def get(self, digital_human_id: str) -> DigitalHuman:
         async with self._database.transaction(immediate=False) as connection:
