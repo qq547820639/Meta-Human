@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import shutil
 import sqlite3
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 import aiosqlite
+
+
+logger = logging.getLogger(__name__)
 
 
 class Database:
@@ -50,16 +55,12 @@ class Database:
             )
 
         migrations = _migration_files()
+        applied = await self.applied_migration_versions()
+        await self._backup_before_migrations(applied)
         for version, migration_path in migrations:
+            if version in applied:
+                continue
             async with self.transaction() as connection:
-                async with connection.execute(
-                    "SELECT 1 FROM schema_migrations WHERE version = ?",
-                    (version,),
-                ) as cursor:
-                    already_applied = await cursor.fetchone()
-                if already_applied is not None:
-                    continue
-
                 script = migration_path.read_text(encoding="utf-8")
                 for statement in _sql_statements(script):
                     await connection.execute(statement)
@@ -70,6 +71,44 @@ class Database:
                     """,
                     (version, migration_path.name),
                 )
+
+    async def _backup_before_migrations(self, applied: tuple[int, ...]) -> None:
+        """Copy the current database to a `<name>.bak.<target_version>` before
+        applying any pending migrations so a failed upgrade can be rolled back.
+
+        The copy is made only when there are pending migrations and the database
+        already contains real app tables (a fresh install has only the
+        `schema_migrations` bookkeeping table, so there is nothing worth backing
+        up). No write transaction is open at this point, so the main file is a
+        consistent snapshot (the database uses the default rollback journal, not
+        WAL). Restoral is manual: stop the app, replace the database file with
+        the `.bak.<version>` snapshot, then start again.
+        """
+        pending = [
+            version
+            for version, _ in _migration_files()
+            if version not in applied
+        ]
+        if not pending:
+            return
+        async with self.transaction(immediate=False) as connection:
+            async with connection.execute(
+                """
+                SELECT 1 FROM sqlite_master
+                WHERE type = 'table' AND name != 'schema_migrations'
+                LIMIT 1
+                """
+            ) as cursor:
+                has_app_tables = await cursor.fetchone()
+        if has_app_tables is None:
+            return
+        target_version = pending[-1]
+        backup_path = self.path.with_name(f"{self.path.name}.bak.{target_version}")
+        shutil.copy2(self.path, backup_path)
+        logger.info(
+            "Backed up database before migration to %s",
+            backup_path,
+        )
 
     async def applied_migration_versions(self) -> tuple[int, ...]:
         async with self.transaction(immediate=False) as connection:

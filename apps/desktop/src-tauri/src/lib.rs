@@ -10,7 +10,10 @@ pub use readiness::{derive_readiness_snapshot, get_readiness_snapshot};
 use crate::keychain::MacKeychainTokenStore;
 use crate::settings::{AppSecrets, AppSettings, AppSettingsView, SettingsStore};
 use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
-use sidecar::{get_sidecar_connection, ManagedSidecar, SidecarConnectionState};
+use sidecar::{
+    get_sidecar_connection, ManagedSidecar, SidecarConnectionError, SidecarConnectionState,
+    SidecarDiagnosticsState, SidecarRuntimeDiagnostics,
+};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream, ToSocketAddrs};
 use std::process::Command;
@@ -244,6 +247,47 @@ fn restart_sidecar(
     sidecar.restart(&app).map_err(|error| error.to_string())
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AppDiagnostics {
+    name: String,
+    version: String,
+    channel: String,
+    commit: String,
+    data_dir: Option<String>,
+    connection: String,
+    sidecar: SidecarRuntimeDiagnostics,
+}
+
+/// App + sidecar diagnostic summary safe to show in the UI and to bundle into a
+/// user-exported diagnostic package. Deliberately excludes any secrets/tokens.
+#[tauri::command]
+fn get_app_diagnostics(
+    app: tauri::AppHandle,
+    connection: tauri::State<'_, SidecarConnectionState>,
+    diagnostics: tauri::State<'_, SidecarDiagnosticsState>,
+) -> Result<AppDiagnostics, String> {
+    let connection = match connection.current() {
+        Ok(connection) => format!("ready (baseUrl={})", connection.base_url()),
+        Err(SidecarConnectionError::Unavailable) => "unavailable".to_string(),
+        Err(SidecarConnectionError::FailedClosed) => "failed_closed".to_string(),
+    };
+    let data_dir = app
+        .path()
+        .app_data_dir()
+        .ok()
+        .map(|path| path.to_string_lossy().into_owned());
+    Ok(AppDiagnostics {
+        name: env!("CARGO_PKG_NAME").to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        channel: std::env::var("VOXSTUDIO_CHANNEL").unwrap_or_else(|_| "stable".to_string()),
+        commit: std::env::var("VOXSTUDIO_COMMIT").unwrap_or_else(|_| "unknown".to_string()),
+        data_dir,
+        connection,
+        sidecar: diagnostics.snapshot(),
+    })
+}
+
 #[tauri::command]
 fn check_local_provider(url: String) -> Result<bool, String> {
     let host_port = url
@@ -384,6 +428,7 @@ pub fn run() {
             let connection_state = SidecarConnectionState::default();
             app.manage(RecordingSessionState::default());
             app.manage(connection_state.clone());
+            app.manage(SidecarDiagnosticsState::default());
             app.manage(ManagedSidecar::start(app.handle(), connection_state));
             Ok(())
         })
@@ -391,6 +436,7 @@ pub fn run() {
             readiness::get_readiness_snapshot,
             readiness::derive_readiness_snapshot,
             get_sidecar_connection,
+            get_app_diagnostics,
             validate_portrait_file,
             validate_recording_file,
             capture_permission_status,

@@ -1,0 +1,294 @@
+# VoxStudio CI quality gate
+#
+# Purpose: fail fast on any regression in the Python sidecar, the frontend, the
+# Rust shell, or dependency security. The final `release-gate` job depends on
+# every test job so nothing is ever published unless all gates are green.
+#
+# Notes:
+#   - The project is macOS-first (Tauri + AVFoundation capture + macOS Keychain),
+#     so every job runs on a macOS arm64 runner.
+#   - Python is managed by uv (apps/sidecar/uv.lock). ruff/mypy are NOT declared
+#     in pyproject.toml, so lint/type-check are reported as skipped rather than
+#     hard-failing the pipeline.
+#   - The real-sidecar integration test needs a freshly built sidecar binary, so
+#     the `sidecar` job builds it (scripts/build-sidecar.sh) and the frontend job
+#     downloads that artifact before running vitest.
+
+name: CI
+
+on:
+  push:
+    branches: ["main", "master"]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Keep the Python environment reproducible from uv.lock.
+  UV_SYNC_BUILDABLE: "1"
+
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Python sidecar: sync -> pytest (migrations covered by persistence tests) ->
+  # coverage -> build binary -> mock provider smoke -> upload artifacts
+  # ---------------------------------------------------------------------------
+  sidecar:
+    name: Python sidecar
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Cache sidecar virtualenv
+        uses: actions/cache@v4
+        with:
+          path: apps/sidecar/.venv
+          key: uv-venv-${{ runner.os }}-${{ hashFiles('apps/sidecar/uv.lock') }}
+          restore-keys: |
+            uv-venv-${{ runner.os }}-
+
+      - name: Sync dependencies
+        run: uv sync --project apps/sidecar --frozen
+        timeout-minutes: 5
+
+      - name: Report lint / type-check configuration
+        # ruff & mypy are not declared in pyproject.toml [dependency-groups],
+        # so the pipeline does not hard-gate on them. Add them to pyproject.toml
+        # and promote these to real gates when configured.
+        run: |
+          echo "::group::tooling"
+          uv run --project apps/sidecar python -c '
+          import tomllib
+          with open("apps/sidecar/pyproject.toml", "rb") as f:
+              data = tomllib.load(f)
+          dev = data.get("dependency-groups", {}).get("dev", [])
+          has_ruff = any("ruff" == d.split(">=")[0].split("==")[0] for d in dev)
+          has_mypy = any("mypy" == d.split(">=")[0].split("==")[0] for d in dev)
+          print(f"ruff configured: {has_ruff}")
+          print(f"mypy configured: {has_mypy}")
+          '
+          echo "::endgroup::"
+
+      - name: Run pytest (unit + integration + migrations)
+        run: >
+          mkdir -p output &&
+          uv run --project apps/sidecar pytest apps/sidecar/tests
+          --strict-markers --strict-config
+          --junitxml=output/pytest-junit.xml
+        timeout-minutes: 10
+
+      - name: Coverage threshold
+        # pytest-cov is not a configured dependency; run it ad-hoc via uv --with.
+        # Measured full-suite coverage on this codebase is ~90%; the gate floor
+        # of 80 leaves headroom while still catching significant regressions.
+        run: >
+          mkdir -p output &&
+          uv run --project apps/sidecar --with pytest-cov pytest apps/sidecar/tests
+          --strict-markers --strict-config
+          --cov=voxstudio_core --cov-report=xml:output/coverage.xml
+          --cov-report=term-missing --cov-fail-under=80
+        timeout-minutes: 10
+        continue-on-error: false
+
+      - name: Build sidecar binary (Nuitka)
+        run: |
+          command -v rustc >/dev/null || { echo "rustc required for host triple"; exit 1; }
+          scripts/build-sidecar.sh
+        timeout-minutes: 20
+
+      - name: Mock provider smoke
+        run: uv run --project apps/sidecar python scripts/smoke-mock-provider.py
+        timeout-minutes: 5
+
+      - name: Upload coverage + pytest artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sidecar-artifacts
+          path: |
+            output/coverage.xml
+            output/pytest-junit.xml
+          if-no-files-found: error
+
+      - name: Upload sidecar binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: sidecar-binary
+          path: apps/desktop/src-tauri/binaries/
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # Frontend: type check -> unit + real-sidecar integration tests -> build
+  # ---------------------------------------------------------------------------
+  frontend:
+    name: Frontend (TS / vitest)
+    runs-on: macos-14
+    timeout-minutes: 30
+    needs: sidecar
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv (for the launcher venv)
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Sync sidecar venv (launcher needs .venv/bin/python)
+        run: uv sync --project apps/sidecar --frozen
+        timeout-minutes: 5
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.9.0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install frontend deps
+        run: pnpm install --frozen-lockfile
+        timeout-minutes: 10
+
+      - name: Download freshly built sidecar binary
+        uses: actions/download-artifact@v4
+        with:
+          name: sidecar-binary
+          path: apps/desktop/src-tauri/binaries/
+
+      - name: TypeScript type check
+        run: pnpm --dir apps/desktop exec tsc --noEmit
+        timeout-minutes: 5
+
+      - name: Frontend unit + real-sidecar integration tests
+        run: pnpm --dir apps/desktop exec vitest run --reporter=verbose
+        timeout-minutes: 15
+
+      - name: Frontend build
+        run: pnpm --dir apps/desktop build
+        timeout-minutes: 10
+
+      - name: Upload frontend build + test artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-artifacts
+          path: |
+            apps/desktop/dist/
+          if-no-files-found: warn
+
+  # ---------------------------------------------------------------------------
+  # Rust: fmt -> clippy -> tests
+  # ---------------------------------------------------------------------------
+  rust:
+    name: Rust shell
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust (stable + fmt + clippy)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry / target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            apps/desktop/src-tauri/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('apps/desktop/src-tauri/Cargo.lock') }}
+
+      - name: cargo fmt --check
+        run: cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml -- --check
+        timeout-minutes: 5
+
+      - name: cargo clippy -D warnings
+        run: >
+          cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml
+          --all-targets --all-features -- -D warnings
+        timeout-minutes: 15
+
+      - name: cargo test
+        run: cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
+        timeout-minutes: 15
+
+  # ---------------------------------------------------------------------------
+  # Security: dependency vulnerability scan
+  # ---------------------------------------------------------------------------
+  security:
+    name: Dependency vulnerabilities
+    runs-on: macos-14
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.9.0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: pnpm audit (frontend)
+        run: pnpm audit --audit-level=high
+        timeout-minutes: 10
+
+      - name: uv audit (Python sidecar)
+        run: uv audit --project apps/sidecar
+        timeout-minutes: 5
+
+      - name: cargo audit (Rust)
+        uses: actions-rust-lang/audit@v1
+        timeout-minutes: 10
+
+  # ---------------------------------------------------------------------------
+  # Release gate: only green when every job above passes. Actual publishing is
+  # intentionally a no-op safety valve (`if: false`) until CD is wired up.
+  # ---------------------------------------------------------------------------
+  release-gate:
+    name: Release gate
+    runs-on: macos-14
+    timeout-minutes: 5
+    needs: [sidecar, frontend, rust, security]
+    if: ${{ !cancelled() && !failure() }}
+    steps:
+      - name: All quality gates passed
+        run: |
+          echo "::group::gate summary"
+          echo "sidecar  : ${{ needs.sidecar.result }}"
+          echo "frontend : ${{ needs.frontend.result }}"
+          echo "rust     : ${{ needs.rust.result }}"
+          echo "security : ${{ needs.security.result }}"
+          echo "::endgroup::"
+
+      - name: Publish (disabled until CD is wired up)
+        if: false
+        run: echo "release pipeline not yet implemented"

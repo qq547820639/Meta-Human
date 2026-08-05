@@ -51,6 +51,27 @@ vi.mock("../creation/captureClient", () => ({
   deleteCapturedTempMedia: vi.fn(),
 }));
 
+vi.mock("../diagnostics/diagnosticsClient", () => ({
+  getAppDiagnostics: vi.fn(() =>
+    Promise.resolve({
+      name: "voxstudio-desktop",
+      version: "0.1.0",
+      channel: "stable",
+      commit: "abc123",
+      dataDir: "/data/voxstudio",
+      connection: "ready (baseUrl=http://127.0.0.1:43210)",
+      sidecar: {
+        active: true,
+        crashed: false,
+        crashRestarts: 0,
+        lastExitCode: null,
+        lastError: null,
+      },
+    }),
+  ),
+  saveDiagnosticPackage: vi.fn(() => Promise.resolve("/tmp/diagnostics.txt")),
+}));
+
 vi.mock("../memory/memoryClient", () => ({
   MEMORY_TYPES: [
     "user_fact",

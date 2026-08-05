@@ -387,6 +387,7 @@ where
     options: SupervisorOptions,
     crash_restarts: u8,
     failed_closed: bool,
+    diagnostics: Option<SidecarDiagnosticsState>,
 }
 
 impl<R, H, A> SidecarSupervisor<R, H, A>
@@ -427,7 +428,51 @@ where
             options,
             crash_restarts: 0,
             failed_closed: false,
+            diagnostics: None,
         })
+    }
+
+    /// Attach a shared diagnostics handle so crash/exit information is visible
+    /// to the diagnostic command. The supervisor records into it thereafter.
+    pub fn attach_diagnostics(&mut self, state: SidecarDiagnosticsState) {
+        if let Ok(mut diagnostics) = state.inner.lock() {
+            diagnostics.active = true;
+            diagnostics.crashed = self.failed_closed;
+            diagnostics.crash_restarts = self.crash_restarts;
+        }
+        self.diagnostics = Some(state);
+    }
+
+    fn record_exit(&self, code: i32) {
+        if let Some(state) = &self.diagnostics {
+            if let Ok(mut diagnostics) = state.inner.lock() {
+                diagnostics.active = true;
+                diagnostics.crashed = true;
+                diagnostics.crash_restarts = self.crash_restarts;
+                diagnostics.last_exit_code = Some(code);
+            }
+        }
+    }
+
+    fn record_error(&self, error: SupervisorError) {
+        if let Some(state) = &self.diagnostics {
+            if let Ok(mut diagnostics) = state.inner.lock() {
+                diagnostics.active = true;
+                diagnostics.crashed = true;
+                diagnostics.crash_restarts = self.crash_restarts;
+                diagnostics.last_error = Some(error.to_string());
+            }
+        }
+    }
+
+    fn refresh_diagnostics(&self) {
+        if let Some(state) = &self.diagnostics {
+            if let Ok(mut diagnostics) = state.inner.lock() {
+                diagnostics.active = true;
+                diagnostics.crashed = self.failed_closed;
+                diagnostics.crash_restarts = self.crash_restarts;
+            }
+        }
     }
 
     pub fn endpoint(&self) -> &SidecarEndpoint {
@@ -455,13 +500,16 @@ where
             .as_mut()
             .ok_or(SupervisorError::ProcessStatusFailed)?
             .try_wait()?;
-        if status == ChildStatus::Running {
-            return Ok(EnsureRunning::Healthy);
-        }
+        let exit_code = match status {
+            ChildStatus::Running => return Ok(EnsureRunning::Healthy),
+            ChildStatus::Exited(code) => code,
+        };
 
         self.child = None;
+        self.record_exit(exit_code);
         if self.crash_restarts >= MAX_CRASH_RESTARTS {
             self.failed_closed = true;
+            self.refresh_diagnostics();
             return Err(SupervisorError::RestartBudgetExhausted);
         }
 
@@ -473,6 +521,7 @@ where
             Ok(child) => child,
             Err(error) => {
                 self.failed_closed = true;
+                self.record_error(error);
                 return Err(error);
             }
         };
@@ -484,15 +533,22 @@ where
             if error != SupervisorError::ShutdownRequested {
                 self.failed_closed = true;
             }
+            self.record_error(error);
             return Err(error);
         }
         self.crash_restarts += 1;
         self.child = Some(replacement);
+        self.refresh_diagnostics();
         Ok(EnsureRunning::Restarted)
     }
 
     pub fn shutdown(&mut self) -> Result<(), SupervisorError> {
         self.failed_closed = true;
+        if let Some(state) = &self.diagnostics {
+            if let Ok(mut diagnostics) = state.inner.lock() {
+                diagnostics.active = false;
+            }
+        }
         let result = match self.child.take() {
             Some(mut child) => stop_child(&mut child, self.options.shutdown_timeout),
             None => Ok(()),
@@ -663,6 +719,40 @@ impl fmt::Debug for SidecarConnectionState {
             .debug_struct("SidecarConnectionState")
             .field("state", &state)
             .finish()
+    }
+}
+
+/// Runtime-summary of the sidecar process that is safe to surface to the UI
+/// and to include in a user-exportable diagnostic package. Never contains
+/// credentials or tokens.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SidecarRuntimeDiagnostics {
+    /// Whether the supervisor currently considers a sidecar to be running.
+    pub active: bool,
+    /// Whether the sidecar has crashed (exited unexpectedly) this session.
+    pub crashed: bool,
+    /// How many automatic restarts have been performed this session.
+    pub crash_restarts: u8,
+    /// The most recent non-zero exit code observed, if any.
+    pub last_exit_code: Option<i32>,
+    /// A short description of the most recent supervisor error, if any.
+    pub last_error: Option<String>,
+}
+
+/// Shared, app-managed handle that the sidecar supervisor thread updates and
+/// that a diagnostic command reads to report crash/exit information.
+#[derive(Clone, Default)]
+pub struct SidecarDiagnosticsState {
+    inner: Arc<Mutex<SidecarRuntimeDiagnostics>>,
+}
+
+impl SidecarDiagnosticsState {
+    pub fn snapshot(&self) -> SidecarRuntimeDiagnostics {
+        self.inner
+            .lock()
+            .map(|diagnostics| diagnostics.clone())
+            .unwrap_or_default()
     }
 }
 
@@ -974,7 +1064,7 @@ fn start_runtime_supervisor(
     let settings_store = SettingsStore::new(&app_data_dir, Box::new(MacKeychainTokenStore));
     let settings = settings_store.load().unwrap_or_default();
     let secrets = settings_store.load_secrets().unwrap_or_default();
-    RuntimeSupervisor::start(
+    let mut supervisor = RuntimeSupervisor::start(
         TauriProcessRunner,
         LoopbackHealthProbe::new(shutdown_signal),
         LoopbackPortAllocator,
@@ -985,7 +1075,11 @@ fn start_runtime_supervisor(
             shutdown_timeout: RUNTIME_SHUTDOWN_TIMEOUT,
         },
         provider_environment(&settings, &secrets),
-    )
+    )?;
+    if let Some(diagnostics) = app.try_state::<SidecarDiagnosticsState>() {
+        supervisor.attach_diagnostics(diagnostics.inner().clone());
+    }
+    Ok(supervisor)
 }
 
 fn sidecar_binary_path(app: &AppHandle) -> PathBuf {

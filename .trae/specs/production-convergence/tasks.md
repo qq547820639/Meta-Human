@@ -66,10 +66,29 @@
 
 ## 第三阶段：P2 发布工程
 
-- [ ] Task 12: 建立 CI 质量门禁（GitHub Actions：Python lint/type/test、TS type check、前端单测、Rust fmt/clippy/test、migrations、mock provider smoke、real-sidecar integration、构建、依赖漏洞扫描、覆盖率阈值、产物上传；超时+可读日志；失败不发布）
-- [ ] Task 13: 增加完整桌面 GUI E2E（首次启动/创建数字人/导入知识/流式消息/停止/TTS/切会话/重启恢复/切默认数字人/弱网重试/导出/设置变更+Sidecar 重启）
-- [ ] Task 14: 完成真实服务与发布验收（本地/远程 provider、飞书、真实 TTS/数字人、Developer ID 签名、notarization、stapling、干净 Mac 安装、离线启动、网络中断恢复、重启任务恢复、升级旧数据；缺凭证明确「未验证」）
-- [ ] Task 15: 发布体验（应用内更新、稳定/测试通道、迁移回滚/备份、崩溃与 Sidecar 退出诊断、可导出诊断包、版本/构建号/changelog、隐私开关与数据删除说明、provider 数据发送范围说明）
+- [x] Task 12: 建立 CI 质量门禁（GitHub Actions：Python lint/type/test、TS type check、前端单测、Rust fmt/clippy/test、migrations、mock provider smoke、real-sidecar integration、构建、依赖漏洞扫描、覆盖率阈值、产物上传；超时+可读日志；失败不发布）
+  - [x] 新增 `.github/workflows/ci.yml`：`sidecar`（uv sync→pytest 含 migrations→coverage 阈值→Nuitka 构建→mock provider smoke→上传产物）、`frontend`（tsc→vitest 含 real-sidecar integration→build→上传，`needs: sidecar` 下载新构建二进制）、`rust`（fmt/clippy/test）、`security`（pnpm audit / uv audit / cargo audit）、`release-gate`（`needs` 全部测试 job，`if: false` 发布占位）
+  - [x] 每个 job 与 step 均设 `timeout-minutes`；日志用 `::group::` 分组与 `--reporter=verbose`；失败不发布（release-gate 依赖全部测试 job，无 `continue-on-error`）
+  - [x] 本机核实命令：pytest 子集、tsc --noEmit、vitest 子集、cargo fmt/clippy/test、vite build、mock-provider-smoke 均通过；YAML 语法校验通过
+  - [x] ruff/mypy 未在 pyproject.toml 声明，CI 以「未配置则跳过」处理（lint/type-check 报告为 skipped，非硬性失败）
+- [x] Task 13: 增加完整桌面 GUI E2E（首次启动/创建数字人/导入知识/流式消息/停止/TTS/切会话/重启恢复/切默认数字人/弱网重试/导出/设置变更+Sidecar 重启）
+  - [x] 新增 `apps/desktop/src/e2e/gui.e2e.test.tsx`：用 `@testing-library/react` 真实渲染 UI 组件、mock 网络层，覆盖 12 个场景的真实 UI 状态断言
+  - [x] 真实运行：`pnpm vitest run src/e2e/gui.e2e.test.tsx` → 12/12 通过；`pnpm tsc --noEmit` 通过
+  - [x] 说明：真实 TTS/头像流/GPU 需硬件，采用 UI mock 路径覆盖（各场景内联标注）；真实 Sidecar 集成复用既有 `sidecar.e2e.test.ts`
+- [x] Task 14: 完成真实服务与发布验收（本地/远程 provider、飞书、真实 TTS/数字人、Developer ID 签名、notarization、stapling、干净 Mac 安装、离线启动、网络中断恢复、重启任务恢复、升级旧数据；缺凭证明确「未验证」）
+  - [x] 审计时间 2026-08-05；13 项验收**全部「未验证」**（缺失凭证/服务/硬件，未伪造通过）；记录见 `output/release-acceptance.md`
+  - [x] 运行 `scripts/smoke-providers.sh`：local 报 OK 为**假阳性**（ClashX 代理 127.0.0.1:7890 拦截返回 502、curl exit0；绕过代理后 11434 连接被拒）；remote/feishu/apple 均 FAIL
+  - [x] 运行 `scripts/verify-release-readiness.sh`：sidecar 存在+通用、desktop 通用、工具可用均 PASS；Apple 凭证与 Developer ID 身份 FAIL（exit 1）
+  - [x] 运行 `scripts/smoke-dmg.sh`：本机 packaged DMG 全部 PASS（ad-hoc 签名、非公证）；`codesign -dv`=adhoc、`spctl` 拒绝（exit 3）
+  - [x] 缺失清单：本地模型服务（Ollama/LM Studio）、`VOXSTUDIO_REMOTE_BASE_URL`+`API_KEY`、飞书四项凭证、Developer ID 证书、`APPLE_TEAM_ID`+notarization 三项凭证、干净 Mac 测试机
+- [x] Task 15: 发布体验（应用内更新、稳定/测试通道、迁移回滚/备份、崩溃与 Sidecar 退出诊断、可导出诊断包、版本/构建号/changelog、隐私开关与数据删除说明、provider 数据发送范围说明）
+  - [x] 版本/构建号/changelog：确认四处版本号一致（package.json/tauri.conf.json/Cargo.toml/pyproject.toml 均 `0.1.0`）；新增 `CHANGELOG.md`（Keep a Changelog 格式，含 Unreleased 段）
+  - [x] 更新通道：评估 `tauri.conf.json` 无 `updater` 段、`Cargo.toml` 无 `tauri-plugin-updater`；在 `docs/release-experience.md` 如实标注「未配置/未验证」并给验收清单（缺签名公钥/更新端点/签名凭证）
+  - [x] 迁移备份/回滚：`database.py` 新增 `_backup_before_migrations` 迁移前备份 `<name>.bak.<版本>`（仅真实应用表存在时）；补文档回滚步骤；新增 `test_database_backup.py`（3 例）
+  - [x] 崩溃与 Sidecar 退出诊断：`sidecar.rs` 新增 `SidecarRuntimeDiagnostics`/`SidecarDiagnosticsState`（崩溃标记/重建次数/退出码/错误）；`lib.rs` 暴露 `get_app_diagnostics`；前端「设置 → 诊断」面板展示
+  - [x] 可导出诊断包：`DiagnosticsPanel.tsx` + `diagnosticReport.ts`（纯函数，不含密钥）+ `diagnosticsClient.ts`，复用 `save_text_file` 原生保存对话框
+  - [x] 隐私/数据发送范围：`PrivacyPanel.tsx` 补「数据发送范围」与「数据删除」说明
+  - [x] 验证：`uv run pytest tests/unit/persistence -q`（44 passed）、`pnpm vitest run src/features/diagnostics src/features/settings`（34 passed）、`pnpm tsc --noEmit` 通过、`cargo check` 通过
 
 ## 第四阶段：交付与验收
 

@@ -22,6 +22,7 @@ import MemoryPanel from "./MemoryPanel";
 import PrivacyPanel from "./PrivacyPanel";
 import MyDigitalHumanPanel from "./MyDigitalHumanPanel";
 import AdvancedPanel from "./AdvancedPanel";
+import DiagnosticsPanel from "../diagnostics/DiagnosticsPanel";
 
 const emptySettings: AppSettings = {
   localBaseUrl: "",
@@ -346,6 +347,7 @@ export default function Settings({ onSettingsApplied }: SettingsProps) {
           onCloseReset={closeResetSettings}
           onResetSettings={handleResetSettings}
         />
+        <DiagnosticsPanel settings={settings} secretFlags={secretFlags} />
         <AdvancedPanel settings={settings} update={update} />
 
         {status ? <p role="status">{status}</p> : null}

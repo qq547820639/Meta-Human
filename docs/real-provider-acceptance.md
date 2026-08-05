@@ -85,11 +85,28 @@ APPLE_NOTARY_ISSUER=<issuer>
 
 ## Current blockers
 
-- No real local service is running on `127.0.0.1:11434`.
+Audited 2026-08-05 on this machine. All 13 acceptance items remain **未验证**
+(no real provider / no release credentials / no clean Mac). See
+`output/release-acceptance.md` for the per-item record.
+
+- No real local service is running on `127.0.0.1:11434` (Ollama/LM Studio absent;
+  connection refused when the proxy is bypassed).
 - `VOXSTUDIO_REMOTE_BASE_URL` and remote API key are not set.
 - Feishu app credentials and a real user token are not set.
-- Apple Developer ID signing identity and notarization credentials are not
-  available.
+- Apple Developer ID signing identity is not available (`security find-identity`
+  reports 0 valid identities); the existing DMG is ad-hoc signed and rejected by
+  `spctl --assess`.
+- Notarization credentials (`APPLE_TEAM_ID`, `APPLE_NOTARY_API_KEY`,
+  `APPLE_NOTARY_KEY_ID`, `APPLE_NOTARY_ISSUER`) are not set.
+- No clean Mac is available for the fresh-install / first-permission run.
 
-Once these are provided, the steps above are the completion gate for this
-project.
+> **Known false positive in `scripts/smoke-providers.sh`:** on this machine the
+> local proxy (ClashX on `127.0.0.1:7890`) intercepts `curl http://127.0.0.1:11434`
+> and returns a 502 with exit 0, so the script reports
+> `OK local OpenAI-compatible service is responding` even though no local model
+> service exists. Bypassing the proxy (`curl --noproxy '*'`) shows connection
+> refused. The script's local check should be hardened (e.g. verify a non-error
+> HTTP status, or use `--noproxy`).
+
+Once the credentials/services/hardware are provided, the steps above are the
+completion gate for this project.

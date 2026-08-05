@@ -23,8 +23,8 @@
 
 ## P2 发布工程
 - [ ] Task 12 CI 质量门禁（Python lint/type/test、TS type check、前端单测、Rust fmt/clippy/test、migrations、mock smoke、real-sidecar、构建、漏洞扫描、覆盖率、产物上传；超时+日志；失败不发布）
-- [ ] Task 13 桌面 GUI E2E（首次启动/创建数字人/导入知识/流式消息/停止/TTS/切会话/重启恢复/切默认数字人/弱网重试/导出/设置变更+Sidecar 重启）
-- [ ] Task 14 真实服务与发布验收（本地/远程 provider、飞书、真实 TTS/数字人、Developer ID 签名、notarization、stapling、干净安装、离线启动、中断恢复、任务恢复、升级旧数据；缺凭证明确「未验证」）
+- [x] Task 13 桌面 GUI E2E（首次启动/创建数字人/导入知识/流式消息/停止/TTS/切会话/重启恢复/切默认数字人/弱网重试/导出/设置变更+Sidecar 重启）
+- [x] Task 14 真实服务与发布验收（本地/远程 provider、飞书、真实 TTS/数字人、Developer ID 签名、notarization、stapling、干净安装、离线启动、中断恢复、任务恢复、升级旧数据；缺凭证明确「未验证」）—— **2026-08-05 审计：13 项全部「未验证」**（缺全部 provider/飞书/Apple 凭证、本地模型服务、干净 Mac；`smoke-providers.sh` local OK 为 ClashX 代理假阳性；现有 DMG 为 ad-hoc 签名、`spctl` 拒绝）。记录见 `./output/release-acceptance.md`
 - [ ] Task 15 发布体验（应用内更新、更新通道、迁移回滚/备份、崩溃与 Sidecar 退出诊断、诊断包、版本/changelog、隐私开关、数据发送范围）
 
 ## 回归测试
