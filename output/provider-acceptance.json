@@ -1,8 +1,8 @@
 {
   "report": {
-    "generated_at": "2026-08-05T03:27:11.748516+00:00Z",
+    "generated_at": "2026-08-05T08:10:27.196574+00:00Z",
     "version": "0.1.0",
-    "commit_sha": "39057bdd04de97198883ed0c2b55320a3b2f608c",
+    "commit_sha": "45dc2129f1965d8847f346001a7a5b27456b5c90",
     "cpu_arch": "arm64",
     "provider_version": "UNKNOWN",
     "summary": {
@@ -19,7 +19,7 @@
       "category": "local",
       "status": "FAIL",
       "evidence": "GET http://127.0.0.1:11434/api/tags -> connection refused (no local service)",
-      "duration_ms": 34,
+      "duration_ms": 54,
       "error": "connection refused",
       "fix_hint": "start Ollama/LM Studio on 127.0.0.1:11434, or set VOXSTUDIO_LOCAL_BASE_URL to a running local OpenAI-compatible service",
       "missing": []
@@ -277,7 +277,7 @@
       "category": "lifecycle",
       "status": "PASS",
       "evidence": "conversation (2 msgs) restored after restart for conversation_id=c1",
-      "duration_ms": 19,
+      "duration_ms": 27,
       "error": null,
       "fix_hint": null,
       "missing": []
@@ -288,7 +288,7 @@
       "category": "lifecycle",
       "status": "PASS",
       "evidence": "interrupted build job survives restart and is reported resumable (current/list_unfinished)",
-      "duration_ms": 23,
+      "duration_ms": 21,
       "error": null,
       "fix_hint": null,
       "missing": []
@@ -299,7 +299,7 @@
       "category": "lifecycle",
       "status": "PASS",
       "evidence": "sidecar crash restore: interrupted run reopened as RECOVERING, capability rewound to PENDING",
-      "duration_ms": 19,
+      "duration_ms": 23,
       "error": null,
       "fix_hint": null,
       "missing": []
@@ -310,7 +310,7 @@
       "category": "lifecycle",
       "status": "PASS",
       "evidence": "interrupted build job survives restart and is reported resumable (current/list_unfinished)",
-      "duration_ms": 17,
+      "duration_ms": 23,
       "error": null,
       "fix_hint": null,
       "missing": []
@@ -320,8 +320,8 @@
       "name": "旧库升级自动备份",
       "category": "lifecycle",
       "status": "PASS",
-      "evidence": "old DB (migration 1) upgraded to v13 with auto-backup prepared.sqlite3.bak.13",
-      "duration_ms": 17,
+      "evidence": "old DB (migration 1) upgraded to v15 with auto-backup prepared.sqlite3.bak.15",
+      "duration_ms": 19,
       "error": null,
       "fix_hint": null,
       "missing": []
@@ -331,8 +331,8 @@
       "name": "迁移失败自动备份可恢复",
       "category": "lifecycle",
       "status": "PASS",
-      "evidence": "backup prepared.sqlite3.bak.13 is restorable and preserves pre-upgrade data",
-      "duration_ms": 14,
+      "evidence": "backup prepared.sqlite3.bak.15 is restorable and preserves pre-upgrade data",
+      "duration_ms": 19,
       "error": null,
       "fix_hint": null,
       "missing": []

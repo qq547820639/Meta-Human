@@ -114,19 +114,31 @@ fn delete_media_file(path: String) -> Result<(), String> {
 
 #[tauri::command]
 fn delete_captured_temp_media() -> Result<u32, String> {
-    let temp_dir = std::env::temp_dir();
-    let entries = std::fs::read_dir(&temp_dir).map_err(|error| error.to_string())?;
+    let candidates = stale_temp_media_candidates(&std::env::temp_dir());
     let mut deleted = 0_u32;
-    for entry in entries {
-        let entry = entry.map_err(|error| error.to_string())?;
-        let file_name = entry.file_name();
-        let name = file_name.to_string_lossy();
-        if name.starts_with("voxstudio-portrait-") || name.starts_with("voxstudio-recording-") {
-            std::fs::remove_file(entry.path()).map_err(|error| error.to_string())?;
-            deleted += 1;
-        }
+    for path in candidates {
+        std::fs::remove_file(&path).map_err(|error| error.to_string())?;
+        deleted += 1;
     }
     Ok(deleted)
+}
+
+/// Identifies leftover voxstudio temp media files (portraits/recordings) in a
+/// directory. Extracted so cleanup can be verified without a live sidecar and
+/// so a media resource leak test can assert that captured files are reclaimed.
+pub fn stale_temp_media_candidates(temp_dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let mut candidates = Vec::new();
+    let Ok(entries) = std::fs::read_dir(temp_dir) else {
+        return candidates;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name.starts_with("voxstudio-portrait-") || name.starts_with("voxstudio-recording-") {
+            candidates.push(entry.path());
+        }
+    }
+    candidates
 }
 
 fn imported_media_path(prefix: &str, extension: &str) -> std::path::PathBuf {

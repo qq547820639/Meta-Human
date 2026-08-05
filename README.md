@@ -46,6 +46,14 @@ VoxStudio 是一款 **macOS 优先** 的桌面应用，帮助用户塑造并对�
 | **媒体采集** | 支持摄像头拍照、麦克风录音，或从文件选择照片和录音作为数字人素材 |
 | **安全隔离** | Sidecar 仅监听回环地址，每次启动随机生成 bearer token，密钥存入 macOS Keychain |
 | **macOS 原生体验** | Tauri 2 原生窗口、系统通知、Keychain 集成、相机/麦克风权限管理 |
+| **自然对话** | 事件驱动的语音状态机（聆听→转写→思考→说话），VAD 自动检测、用户说话打断、打断取消真实 `generation_id`、弱网重连/纯文本降级 |
+| **数字人呈现生命周期** | 视频流 / TTS / generation 统一生命周期，stream loading/buffering/reconnecting/fallback 状态，失败保留文字与音频，持续播放时静态人像自然说话/聆听/思考 |
+| **配置向导** | 本地服务自动探测、可用模型下拉、能力-模型匹配校验、技术错误翻译、本地/远程数据范围说明、保存前校验 + 保存后真实验证 |
+| **知识 / 记忆体验** | 增量同步与进度、单文档启停/重同步/删除、引用展示与更新时间、无依据回答标记；长期记忆来源/时间、固定/编辑/删除/禁用、作用域与注入前检查 |
+| **可观测与诊断** | 结构化日志与 `request_id` 全链路关联、脱敏诊断包导出、provider 延迟/错误率/取消率/降级率指标、崩溃/迁移/泄漏测试 |
+| **无障碍与全状态 UI** | 键盘完整操作、VoiceOver 标签与焦点、字幕与转写、reduced motion / 高对比度 / 字体缩放、所有错误/空/加载/恢复状态 UI |
+| **签名应用更新** | 带 Ed25519 签名验证的更新生命周期（检查→下载→验证→安装→回滚），稳定/测试双通道，迁移前数据库自动备份 |
+| **真实 provider 验收** | 可执行验收执行器（`scripts/accept-providers`、`scripts/record-provider-acceptance.sh`），缺凭证标 UNVERIFIED、绝不伪造通过 |
 
 ---
 
@@ -359,6 +367,34 @@ pnpm --dir apps/desktop tauri dev
 
 **长期记忆：** 经过一定轮次对话后，系统自动将近期对话压缩为摘要存入长期记忆，并在后续对话中注入上下文。可在设置页查看、编辑或清除长期记忆。
 
+#### 第八步：自然对话（可选）
+
+在对话界面可切换「按键说话」与「自然对话」两种语音交互模式：
+
+- **自然对话**：开启后状态机按 `聆听 → 转写 → 思考 → 说话` 推进，VAD 自动检测说话开始/结束并展示可修正的临时转写；数字人说话时你开口即可打断——系统会取消真实 `generation_id` 的 LLM 生成、停止 TTS/音频播放与 avatar 后续动作，被取消的任务不写入消息也不自动播放。
+- **状态展示**：界面实时显示「聆听 / 理解 / 思考 / 说话 / 重连」状态，弱网时自动重连、超时重试或降级为纯文本。
+- 数字人说话时麦克风回采会降低（回声消除/降噪/自动增益），避免自激。
+
+> 自然对话依赖真实本地 STT 与本地/远程语音能力；未配置对应 provider 时仅在 readiness 门禁解锁后可用，缺能力时如实显示不可用。
+
+---
+
+## 当前验证状态（UNVERIFIED 声明）
+
+本迭代（正式发布闭环 + 自然对话）已完成代码、自动化测试与文档，但**产品仍未达到生产发布完成状态**。以下能力因缺少凭证 / 服务 / 硬件尚未真实验证，一律标注 **UNVERIFIED**，不声称通过：
+
+| 项 | 缺什么 |
+| --- | --- |
+| 本地模型服务（Ollama / LM Studio） | 本机 `127.0.0.1:11434` 无真实服务 |
+| 远程 GPU（数字人 / TTS / 形象流） | `VOXSTUDIO_REMOTE_BASE_URL` / `API_KEY` 未配置 |
+| 飞书知识同步 | `VOXSTUDIO_FEISHU_*` 凭证未配置 |
+| Apple Developer ID 签名 | 本机 0 个有效 codesigning 身份 |
+| notarization / stapling | `APPLE_TEAM_ID` + 三个 notary 凭证未配置 |
+| 干净 Mac 安装 / 首次权限 / 断网 / 覆盖 / 卸载 / 崩溃清理 | 无干净 Mac 与真实 GUI 会话 |
+| 签名应用更新（真实更新端点） | 更新端点与签名公钥未配置（生命周期/签名验证代码与单测已落地） |
+
+这些项的真实执行与记录由 `scripts/smoke-providers.sh`、`scripts/accept-providers`、`scripts/record-provider-acceptance.sh`、`scripts/release-closure.sh`、`scripts/sign-notarize.sh` 等可执行脚本承载，补齐凭证/服务/硬件后按 `docs/real-provider-acceptance.md` 与 `docs/release-checklists.md` 逐项执行即可。
+
 ---
 
 ## 校验与测试
@@ -412,6 +448,24 @@ scripts/smoke-providers.sh
 
 # 对打包后的 DMG 做冒烟（挂载→启动→校验→退出）
 scripts/smoke-dmg.sh
+```
+
+### 真实 provider 验收
+
+补齐凭证后，用可执行验收执行器生成机器可读证据（缺凭证项标 UNVERIFIED，绝不标 PASS）：
+
+```bash
+# 报告哪些真实 provider 存在（本地/远程/飞书/Apple 发布）
+scripts/record-provider-readiness.sh        # -> output/provider-readiness.md
+
+# 运行完整验收矩阵并写 JSON + Markdown 证据
+scripts/record-provider-acceptance.sh       # -> output/provider-acceptance.json / .md
+scripts/record-provider-acceptance.sh --strict   # 任一 UNVERIFIED/FAIL 即非零退出
+
+# 发布闭环：双架构/签名/spctl/staple/离线/覆盖/卸载/崩溃
+scripts/verify-release-readiness.sh
+scripts/release-closure.sh
+scripts/sign-notarize.sh
 ```
 
 ---
@@ -593,6 +647,7 @@ git push origin feat/my-feature
 | --- | --- |
 | [development.md](docs/development.md) | 完整开发指南：环境搭建、架构细节、全部配置项、安全边界、排障手册 |
 | [release-checklists.md](docs/release-checklists.md) | 签名 DMG 发布清单：先决条件、构建门禁、签名、公证、全新安装冒烟 |
+| [release-experience.md](docs/release-experience.md) | 发布体验说明：版本号、签名应用更新、迁移备份、诊断、隐私、权限/离线/覆盖/卸载 |
 | [real-provider-acceptance.md](docs/real-provider-acceptance.md) | 真实 provider 验收流程与证据清单 |
 | [docs/README.md](docs/README.md) | 文档目录索引与阅读建议 |
 | [scripts/README.md](scripts/README.md) | 全部构建/测试/发布脚本的分类说明 |

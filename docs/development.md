@@ -304,6 +304,80 @@ it shows validating/building/ready/failed/cancelled stages, supports cancelling
 an in-flight build, retrying after failure, re-capturing media, and returning to
 the readiness view.
 
+## Natural conversation state machine
+
+Natural conversation is driven by a real event-driven reducer, not a fixed
+`setTimeout`. The state machine in
+`apps/desktop/src/features/conversation/natural/naturalConversationStateMachine.ts`
+models the lifecycle `idle → listening → transcribing → thinking → speaking →`
+`interrupted / reconnecting / error`:
+
+- **VAD**: `vad.ts` detects speech start/end from the microphone stream; partial
+  STT is shown as an editable provisional transcript (`stt.ts` +
+  `vadAdapter.ts`).
+- **Interruption**: when the digital human is `speaking` and the user starts to
+  talk, the UI cancels the real `generation_id` LLM generation, stops TTS/audio
+  playback and any avatar follow-up; the cancelled task is not written to the
+  transcript and does not auto-play.
+- **Degradation**: weak-network reconnect, timeout retry, and pure-text fallback
+  are handled; the UI shows `聆听 / 理解 / 思考 / 说话 / 重连` states and lets the
+  user switch between `按键说话` and `自然对话`.
+- **Echo handling**: while the digital human talks, microphone re-capture is
+  reduced (echo cancellation, noise suppression, auto gain).
+- **Performance budget**: speech→first-token transcription, stop→STT done,
+  submit→first token, first token→first speech, A/V sync offset, and
+  interruption→sound-stop are tracked for regression.
+
+The core logic (`naturalConversationCore.ts`) is decoupled from UI so it is
+unit-tested directly (`naturalConversationCore.test.ts`,
+`naturalConversationStateMachine.test.ts`, `vad.test.ts`).
+
+## Avatar presentation lifecycle
+
+`apps/desktop/src/features/conversation/avatarPresentationLifecycle.ts` owns a
+unified lifecycle for video stream / TTS / generation so switching digital
+humans or conversations stops the old audio, video, and network tasks first:
+
+- Stream states `loading / buffering / reconnecting / fallback` keep the text
+  and audio reply even if the stream fails.
+- Static-portrait fallback renders natural speaking / listening / thinking
+  states; provider capabilities may drive A/V sync, lip-sync, and emotion
+  parameters.
+- Page hide, system sleep, and network switch correctly recover or rebuild the
+  stream.
+- `useAvatarPresentation.ts` wires the lifecycle into the conversation UI;
+  `avatarPresentationLifecycle.test.ts` covers unified lifecycle, fallback, and
+  recovery.
+
+## Observability and request_id
+
+- The sidecar emits structured logs and a `request_id` propagated across the
+  full request chain (`tests/integration/api/test_request_id_linkchain.py`).
+- Provider latency / error rate / cancel rate / degradation rate metrics are
+  surfaced through `GET /v1/metrics` (`metrics.py`, `metricsClient.ts`).
+- The desktop diagnostics panel and exportable diagnostics report are
+  redacted by default: no bearer token, API key, app secret, or access/refresh
+  token is included (`diagnosticReport.ts` is unit-tested for non-leak).
+- Sidecar crash/database migration/media-resource leak tests live in the Rust
+  `sidecar_supervisor.rs`, `media_leak_contract.rs`, and the Python persistence
+  suites.
+
+## Real provider acceptance executor
+
+Real integration tests are optional and live in
+`apps/sidecar/tests/integration/providers/` plus the executable executor
+under `scripts/accept-providers/`. Items that need missing credentials are
+reported `UNVERIFIED` and are never `PASS`; a local provider with no reachable
+service is `FAIL`. Run through the sidecar's uv environment:
+
+```bash
+scripts/record-provider-acceptance.sh              # -> output/provider-acceptance.json / .md
+scripts/record-provider-acceptance.sh --strict     # fail on any UNVERIFIED/FAIL
+scripts/record-provider-readiness.sh               # -> output/provider-readiness.md
+```
+
+See `docs/real-provider-acceptance.md` for the runbook.
+
 ## Application settings
 
 The in-app Settings page covers local model, remote GPU, and Feishu configuration.

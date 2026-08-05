@@ -13,6 +13,12 @@ describe("conversationMetrics", () => {
       fullResponseMs: null,
       ttsStartupMs: null,
       avatarReadyMs: null,
+      speechToFirstTranscriptMs: null,
+      speechEndToTranscriptMs: null,
+      submitToFirstTokenMs: null,
+      firstTokenToFirstAudioMs: null,
+      avSyncErrorMs: null,
+      interruptToSilenceMs: null,
     });
     expect(formatMetricsLabel(emptyConversationMetrics)).toBe("");
   });
@@ -28,6 +34,12 @@ describe("conversationMetrics", () => {
       fullResponseMs: 2400,
       ttsStartupMs: 300,
       avatarReadyMs: null,
+      speechToFirstTranscriptMs: null,
+      speechEndToTranscriptMs: null,
+      submitToFirstTokenMs: null,
+      firstTokenToFirstAudioMs: null,
+      avSyncErrorMs: null,
+      interruptToSilenceMs: null,
     });
   });
 

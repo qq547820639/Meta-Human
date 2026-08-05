@@ -3,6 +3,12 @@
 Generated: 2026-08-05T01:47Z
 审计机器：macOS（本机），非干净 Mac。
 
+> **更新注记（Task 12，2026-08-05）：** 本文档是 P2/Task 14 的历史审计快照，
+> 其中「`smoke-providers.sh` 报 OK 为假阳性」的描述已过时。`scripts/smoke-providers.sh`
+> 已在 Task 1 重写（绕过代理 + 仅接受 2xx + 校验 JSON），假阳性已修复，缺本地服务现如实报 `FAIL`。
+> 当前真实验收状态请以最新生成的 `output/provider-acceptance.json` / `.md`、
+> `output/provider-readiness.md`、`output/release-readiness.md` 为准。
+
 本记录只陈述**实际执行并取得结果**的验证路径；凡因缺少凭证 / 服务 / 硬件而未执行的，
 一律标注「未验证」，不写「通过」。
 

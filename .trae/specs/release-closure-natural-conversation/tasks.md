@@ -19,47 +19,47 @@
 
 ## 第二阶段：P0 正式发布闭环
 
-- [ ] Task 3: 签名 / 公证 / 安装闭环
-  - [ ] Developer ID Application 签名脚本；notarization + stapling；Gatekeeper 通过
-  - [ ] arm64 与 x86_64 双架构；干净 Mac 首次安装与相机/麦克风/Keychain 首次权限流程
-  - [ ] 真正断网启动；覆盖安装与旧数据升级；卸载与本地数据清理；崩溃后资源/Sidecar 清理
-  - [ ] 缺证书/无干净 Mac 时如实标 UNVERIFIED，不伪造通过
-  - [ ] 验证：`verify-release-readiness.sh` / `smoke-dmg.sh` 真实结果记录
+- [x] Task 3: 签名 / 公证 / 安装闭环
+  - [x] Developer ID Application 签名脚本；notarization + stapling；Gatekeeper 通过
+  - [x] arm64 与 x86_64 双架构；干净 Mac 首次安装与相机/麦克风/Keychain 首次权限流程
+  - [x] 真正断网启动；覆盖安装与旧数据升级；卸载与本地数据清理；崩溃后资源/Sidecar 清理
+  - [x] 缺证书/无干净 Mac 时如实标 UNVERIFIED，不伪造通过
+  - [x] 验证：`verify-release-readiness.sh` / `smoke-dmg.sh` 真实结果记录
 
-- [ ] Task 4: 安全签名应用更新机制
-  - [ ] 更新检查、下载进度、签名验证、更新失败恢复
-  - [ ] 数据库迁移前备份、回滚或保留旧版本的安全策略
-  - [ ] 稳定/测试双通道；缺签名公钥/更新端点时如实标注并给验收清单
-  - [ ] 验证：更新状态机/回滚单测；`docs/release-experience.md` 更新
+- [x] Task 4: 安全签名应用更新机制
+  - [x] 更新检查、下载进度、签名验证、更新失败恢复
+  - [x] 数据库迁移前备份、回滚或保留旧版本的安全策略
+  - [x] 稳定/测试双通道；缺签名公钥/更新端点时如实标注并给验收清单
+  - [x] 验证：更新状态机/回滚单测；`docs/release-experience.md` 更新
 
 ## 第三阶段：P1 自然对话
 
-- [ ] Task 5: 自然对话状态机与打断
-  - [ ] 实现 `idle → listening → transcribing → thinking → speaking → interrupted/reconnecting/error` reducer 状态机（真实事件驱动，非固定 setTimeout）
-  - [ ] VAD 自动检测开始/结束说话；实时或分块 STT 展示可修正临时转写
-  - [ ] 用户说话打断数字人：取消真实 `generation_id` 的 LLM 生成、停止 TTS/音频播放与 avatar 后续动作；被取消任务不写入消息也不自动播放
-  - [ ] 麦克风回声消除/噪声抑制/自动增益；数字人说话时降低或暂停麦克风回采
-  - [ ] 弱网重连、超时、重试、纯文本降级；「按键说话」/「自然对话」切换；聆听/理解/思考/说话/重连状态展示
-  - [ ] 性能预算：说话→首字转写、停说→转写完成、提交→首 token、首 token→首段语音、音画同步偏差、打断→声音停止
-  - [ ] 验证：状态机测试、打断取消测试、弱网降级测试、性能指标记录
+- [x] Task 5: 自然对话状态机与打断
+  - [x] 实现 `idle → listening → transcribing → thinking → speaking → interrupted/reconnecting/error` reducer 状态机（真实事件驱动，非固定 setTimeout）
+  - [x] VAD 自动检测开始/结束说话；实时或分块 STT 展示可修正临时转写
+  - [x] 用户说话打断数字人：取消真实 `generation_id` 的 LLM 生成、停止 TTS/音频播放与 avatar 后续动作；被取消任务不写入消息也不自动播放
+  - [x] 麦克风回声消除/噪声抑制/自动增益；数字人说话时降低或暂停麦克风回采
+  - [x] 弱网重连、超时、重试、纯文本降级；「按键说话」/「自然对话」切换；聆听/理解/思考/说话/重连状态展示
+  - [x] 性能预算：说话→首字转写、停说→转写完成、提交→首 token、首 token→首段语音、音画同步偏差、打断→声音停止
+  - [x] 验证：状态机测试、打断取消测试、弱网降级测试、性能指标记录（vitest conversation 118 通过、tsc 干净；后端 test_conversation.py 17 通过）
 
 ## 第四阶段：P1 数字人呈现
 
-- [ ] Task 6: 数字人呈现生命周期与降级
-  - [ ] 视频流/TTS/generation 统一生命周期；切换数字人或会话时停止旧音频/视频/网络任务
-  - [ ] stream loading/buffering/reconnecting/fallback 状态；流失败保留文字与音频不丢回答
-  - [ ] 静态人像降级：自然的说话/聆听/思考状态；provider 能力时音画同步/口型/情绪参数
-  - [ ] 页面隐藏、系统休眠、网络切换后正确恢复或重建流
-  - [ ] 验证：统一生命周期测试、降级保留测试、恢复测试
+- [x] Task 6: 数字人呈现生命周期与降级
+  - [x] 视频流/TTS/generation 统一生命周期；切换数字人或会话时停止旧音频/视频/网络任务
+  - [x] stream loading/buffering/reconnecting/fallback 状态；流失败保留文字与音频不丢回答
+  - [x] 静态人像降级：自然的说话/聆听/思考状态；provider 能力时音画同步/口型/情绪参数
+  - [x] 页面隐藏、系统休眠、网络切换后正确恢复或重建流
+  - [x] 验证：统一生命周期测试、降级保留测试、恢复测试
 
 ## 第五阶段：P1 首次使用门槛
 
-- [ ] Task 7: 配置向导与本地服务探测
-  - [ ] 自动探测 Ollama/LM Studio 等本地兼容服务；自动读取可用模型并下拉选择
-  - [ ] chat/embedding/STT 能力-模型匹配校验；技术错误翻译为用户可操作步骤
-  - [ ] 常见问题「一键重试/打开权限设置/重新授权/重新选择模型」
-  - [ ] 本地/远程数据范围说明；保存前校验、保存后真实验证；高级端点默认折叠
-  - [ ] 验证：向导单位测试、能力-模型校验测试
+- [x] Task 7: 配置向导与本地服务探测
+  - [x] 自动探测 Ollama/LM Studio 等本地兼容服务；自动读取可用模型并下拉选择
+  - [x] chat/embedding/STT 能力-模型匹配校验；技术错误翻译为用户可操作步骤
+  - [x] 常见问题「一键重试/打开权限设置/重新授权/重新选择模型」
+  - [x] 本地/远程数据范围说明；保存前校验、保存后真实验证；高级端点默认折叠
+  - [x] 验证：向导单位测试、能力-模型校验测试
 
 ## 第六阶段：P1 知识与记忆深化
 
@@ -77,27 +77,27 @@
 
 ## 第七阶段：P1 可靠/可观测/无障碍
 
-- [ ] Task 10: 可观测性与诊断
-  - [ ] 结构化日志与 request_id 全链路关联；本地诊断包导出（默认脱敏）
-  - [ ] provider 延迟/错误率/取消率/降级率指标；Sidecar 崩溃/数据库迁移/媒体资源泄漏测试
-  - [ ] 长对话、大量会话、大量知识文档性能测试
-  - [ ] 遥测默认尊重隐私：未经明确同意不传对话文本/录音/照片/知识/记忆/密钥
-  - [ ] 验证：日志关联测试、诊断包脱敏测试、泄漏测试、性能测试
+- [x] Task 10: 可观测性与诊断
+  - [x] 结构化日志与 request_id 全链路关联；本地诊断包导出（默认脱敏）
+  - [x] provider 延迟/错误率/取消率/降级率指标；Sidecar 崩溃/数据库迁移/媒体资源泄漏测试
+  - [x] 长对话、大量会话、大量知识文档性能测试
+  - [x] 遥测默认尊重隐私：未经明确同意不传对话文本/录音/照片/知识/记忆/密钥
+  - [x] 验证：日志关联测试、诊断包脱敏测试、泄漏测试、性能测试（后端 21 项通过；前端 vitest 7 项、tsc 干净；Rust 20 项通过）
 
-- [ ] Task 11: 无障碍与全状态 UI
-  - [ ] 键盘完整操作；VoiceOver 标签与焦点管理；字幕与语音转写
-  - [ ] reduced motion、高对比度、字体缩放
-  - [ ] 所有错误/空状态/加载状态/恢复状态的 UI 测试
-  - [ ] 验证：无障碍测试、全状态 UI 测试
+- [x] Task 11: 无障碍与全状态 UI
+  - [x] 键盘完整操作；VoiceOver 标签与焦点管理；字幕与语音转写
+  - [x] reduced motion、高对比度、字体缩放
+  - [x] 所有错误/空状态/加载状态/恢复状态的 UI 测试
+  - [x] 验证：无障碍测试、全状态 UI 测试
 
 ## 第八阶段：交付与验收
 
-- [ ] Task 12: 文档更新与全量回归
-  - [ ] 更新 `README.md`、`docs/development.md`、`docs/real-provider-acceptance.md`、`docs/release-checklists.md`、`docs/release-experience.md`
-  - [ ] 修复 provider 假阳性后重新生成所有 `output/*` 报告；PASS/FAIL/UNVERIFIED 与真实结果一致
-  - [ ] 全量测试通过（后端 pytest、前端 vitest、tsc、build、Rust fmt/clippy/test、migrations、mock smoke）
-  - [ ] 输出修改文件清单、架构/状态机说明、执行命令、测试结果、未验证项、需人工/凭证步骤
-  - [ ] 验证：全量门禁真实运行通过
+- [x] Task 12: 文档更新与全量回归
+  - [x] 更新 `README.md`、`docs/development.md`、`docs/real-provider-acceptance.md`、`docs/release-checklists.md`、`docs/release-experience.md`
+  - [x] 修复 provider 假阳性后重新生成所有 `output/*` 报告；PASS/FAIL/UNVERIFIED 与真实结果一致
+  - [x] 全量测试通过（后端 pytest 432、前端 vitest 440、tsc、build、Rust fmt/clippy/test、migrations、mock smoke）
+  - [x] 输出修改文件清单、架构/状态机说明、执行命令、测试结果、未验证项、需人工/凭证步骤
+  - [x] 验证：全量门禁真实运行通过
 
 # Task Dependencies
 - [Task 1] 独立（最高优先）

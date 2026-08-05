@@ -741,6 +741,39 @@ describe("ConversationWorkspace", () => {
     expect(screen.queryByText("正在生成。")).toBeInTheDocument();
   });
 
+  it("shows a natural static portrait pose and preserves the answer when no live stream is available", async () => {
+    const capture = captureStream();
+    const { container } = render(
+      <ConversationWorkspace portraitPath="/tmp/portrait.jpg" />,
+    );
+
+    // With no live stream, the static portrait is rendered immediately.
+    const img = container.querySelector("img");
+    expect(img).not.toBeNull();
+    expect(img?.getAttribute("src")).toBe("asset:///tmp/portrait.jpg");
+
+    fireEvent.change(screen.getByLabelText("问题"), {
+      target: { value: "你好" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+
+    capture.events.onToken?.("回答。");
+    capture.events.onDone?.("回答。");
+    capture.events.onAudio?.("QUJD");
+
+    await waitFor(() =>
+      expect(container.querySelector("audio")).not.toBeNull(),
+    );
+    // Drive the audio element to playing so the static pose reflects speaking.
+    fireEvent.play(container.querySelector("audio") as HTMLAudioElement);
+    // The answer text and audio are preserved even though only the static
+    // portrait is presented (no live stream).
+    expect(screen.getByText("回答。")).toBeInTheDocument();
+    expect(container.querySelector("img")?.getAttribute("data-pose")).toBe(
+      "speaking",
+    );
+  });
+
   it("sends on Enter and exposes keyboard-focusable voice, send and stop controls", async () => {
     const capture = captureStream();
     mockReply();

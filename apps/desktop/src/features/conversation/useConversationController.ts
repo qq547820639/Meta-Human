@@ -30,9 +30,10 @@ import {
   type ChatError,
   type ChatMessage,
 } from "./conversationModel";
-import { useAvatarSession } from "./useAvatarSession";
+import { useAvatarPresentation } from "./useAvatarPresentation";
 import { useConversationRestore } from "./useConversationRestore";
 import { useConversationStateMachine } from "./useConversationStateMachine";
+import { useNaturalConversation } from "./useNaturalConversation";
 import { useStreamingReply } from "./useStreamingReply";
 import { useTtsPlayback } from "./useTtsPlayback";
 import { useVoiceRecording } from "./useVoiceRecording";
@@ -57,7 +58,7 @@ export interface ConversationControllerProps {
  *   - useConversationRestore      : restore / switch / paginate messages
  *   - useVoiceRecording           : voice input
  *   - useTtsPlayback              : audio element events -> tts dimension
- *   - useAvatarSession            : video element events -> avatar dimension
+ *   - useAvatarPresentation       : video element events -> avatar dimension + unified presentation lifecycle
  *
  * The component (`ConversationWorkspace`) is a thin renderer over this hook.
  */
@@ -155,13 +156,50 @@ export function useConversationController({
   } = useTtsPlayback({ ui, dispatch, onMetrics });
 
   const {
+    naturalState,
+    naturalActive,
+    naturalStatus,
+    naturalTranscript,
+    transcriptFinal,
+    naturalMode,
+    micCapabilities,
+    naturalSttAvailable,
+    enableNatural,
+    disableNatural,
+    setNaturalMode,
+    retryNatural,
+    onTranscriptEdit,
+    onTranscriptConfirm,
+    interruptNatural,
+  } = useNaturalConversation({
+    humanId,
+    getConversationId,
+    setMessages,
+    setQuery,
+    setError,
+    onMetrics,
+    dispatch,
+  });
+
+  const {
+    presentation,
+    staticPose,
+    params,
     avatarFailed,
+    rebuildNonce,
     onVideoLoadedData,
     onVideoPlay,
     onVideoPause,
     onVideoEnded,
     onVideoError,
-  } = useAvatarSession({ ui, dispatch, streamUrl, onMetrics });
+    cleanup: cleanupPresentation,
+  } = useAvatarPresentation({
+    ui,
+    dispatch,
+    streamUrl,
+    onMetrics,
+    listening: naturalActive,
+  });
 
   // When the selected digital human changes, safely stop the previous human's
   // avatar stream, audio playback and unfinished generation before the new
@@ -172,6 +210,8 @@ export function useConversationController({
     }
     humanIdRef.current = humanId;
     abortInFlight();
+    void disableNatural();
+    cleanupPresentation();
     document
       .querySelectorAll<HTMLAudioElement>("audio.conversation-message-audio")
       .forEach((node) => {
@@ -188,10 +228,25 @@ export function useConversationController({
     }
     dispatch({ type: "RESET" });
     setError(null);
-    // `abortInFlight` is recreated each render; its behavior is stable (it only
-    // reads refs and stable setters), so it must not be a dependency here.
+    // `abortInFlight` / `disableNatural` / `cleanupPresentation` are recreated
+    // each render but their behavior is stable (they only read refs, stable
+    // setters and the stable dispatch), so they must not be dependencies here.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [humanId, dispatch]);
+
+  // When the conversation switches (restore / new / clear), tear the current
+  // presentation down so a stale stream never lingers into the new session.
+  const prevConversationIdRef = useRef(conversationId);
+  useEffect(() => {
+    if (prevConversationIdRef.current === conversationId) {
+      return;
+    }
+    prevConversationIdRef.current = conversationId;
+    cleanupPresentation();
+    // cleanupPresentation is recreated each render but only reads refs and the
+    // stable dispatch, so it must not be a dependency here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversationId]);
 
   useEffect(() => {
     const node = threadRef.current;
@@ -498,6 +553,10 @@ export function useConversationController({
     sourcesCount,
     ttsFailed,
     avatarFailed,
+    presentation,
+    staticPose,
+    params,
+    rebuildNonce,
     recordingVoice,
     humanName,
     autoPlay,
@@ -505,6 +564,22 @@ export function useConversationController({
     readOnly,
     setReadOnly,
     metrics,
+    // natural-conversation state + controls
+    naturalState,
+    naturalActive,
+    naturalStatus,
+    naturalTranscript,
+    transcriptFinal,
+    naturalMode,
+    micCapabilities,
+    naturalSttAvailable,
+    enableNatural,
+    disableNatural,
+    setNaturalMode,
+    retryNatural,
+    onTranscriptEdit,
+    onTranscriptConfirm,
+    interruptNatural,
     stopPlayback,
     replayLatest,
     latestAudioMessage,

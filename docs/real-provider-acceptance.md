@@ -41,13 +41,20 @@ APPLE_NOTARY_ISSUER=<issuer>
 2. Configure the app through the Settings UI or the environment variables
    above, then save settings so the sidecar restarts in place.
 
-3. Confirm readiness:
+3. Confirm readiness and run the acceptance executor:
 
    ```bash
-   scripts/record-provider-readiness.sh
+   scripts/record-provider-readiness.sh        # -> output/provider-readiness.md
+   scripts/record-provider-acceptance.sh       # -> output/provider-acceptance.json / .md
+   scripts/record-provider-acceptance.sh --strict   # fail on any UNVERIFIED/FAIL
    ```
 
-   Expected: all three provider paths show `OK`.
+   The executor (`scripts/accept-providers/accept_providers.py`) is the
+   authoritative, machine-readable acceptance gate. Expected once real providers
+   are configured: all three provider paths show `PASS` and the JSON report
+   records time / version / commit / arch / evidence. Items that still need
+   missing credentials are reported `UNVERIFIED` (never `PASS`); a configured
+   but unreachable local service is reported `FAIL`.
 
 4. Launch the app and complete the full user journey:
 
@@ -74,6 +81,8 @@ APPLE_NOTARY_ISSUER=<issuer>
 ## Evidence checklist
 
 - [ ] `output/provider-readiness.md` shows real provider paths as `OK`.
+- [ ] `output/provider-acceptance.json` / `.md` record real provider checks as
+      `PASS` (time / version / commit / arch / evidence).
 - [ ] `output/mock-provider-smoke.md` still passes after the runbook.
 - [ ] `output/release-readiness.md` shows all release prerequisites `PASS`.
 - [ ] Notarized DMG opens without Gatekeeper workarounds.
@@ -85,12 +94,14 @@ APPLE_NOTARY_ISSUER=<issuer>
 
 ## Current blockers
 
-Audited 2026-08-05 on this machine. All 13 acceptance items remain **未验证**
-(no real provider / no release credentials / no clean Mac). See
-`output/release-acceptance.md` for the per-item record.
+Audited 2026-08-05 on this machine. All real-provider acceptance items remain
+**未验证** (no real provider / no release credentials / no clean Mac). The
+`output/provider-acceptance.json` / `.md` record the current state: 6 PASS
+(lifecycle) + 1 FAIL (local no service) + 19 UNVERIFIED (missing credentials).
 
 - No real local service is running on `127.0.0.1:11434` (Ollama/LM Studio absent;
-  connection refused when the proxy is bypassed).
+  connection refused when the proxy is bypassed). This is now reported `FAIL`
+  (not a false-positive `OK`).
 - `VOXSTUDIO_REMOTE_BASE_URL` and remote API key are not set.
 - Feishu app credentials and a real user token are not set.
 - Apple Developer ID signing identity is not available (`security find-identity`
@@ -100,13 +111,11 @@ Audited 2026-08-05 on this machine. All 13 acceptance items remain **未验证**
   `APPLE_NOTARY_KEY_ID`, `APPLE_NOTARY_ISSUER`) are not set.
 - No clean Mac is available for the fresh-install / first-permission run.
 
-> **Known false positive in `scripts/smoke-providers.sh`:** on this machine the
-> local proxy (ClashX on `127.0.0.1:7890`) intercepts `curl http://127.0.0.1:11434`
-> and returns a 502 with exit 0, so the script reports
-> `OK local OpenAI-compatible service is responding` even though no local model
-> service exists. Bypassing the proxy (`curl --noproxy '*'`) shows connection
-> refused. The script's local check should be hardened (e.g. verify a non-error
-> HTTP status, or use `--noproxy`).
+> **False positive fixed:** `scripts/smoke-providers.sh` was rewritten (Task 1)
+> to bypass the local HTTP proxy (`--noproxy '*'`), accept only HTTP 2xx, and
+> validate the `/api/tags` JSON body. The old ClashX-502-as-`OK` false positive
+> no longer occurs; a missing local service is now honestly `FAIL`. See
+> `scripts/test_smoke_providers.sh` for the regression tests.
 
 Once the credentials/services/hardware are provided, the steps above are the
 completion gate for this project.

@@ -69,4 +69,42 @@ describe("buildDiagnosticReport", () => {
     expect(report).toContain("远程服务地址: (未配置)");
     expect(report).toContain("远程 API Key 已保存: 是");
   });
+
+  it("redacts by default even when detail is supplied", () => {
+    const report = buildDiagnosticReport({
+      diagnostics,
+      settings,
+      exportedAt: "2026-08-05T00:00:00Z",
+      detail: {
+        recentTranscript: "user: 我的密钥是 hunter2",
+        mediaPaths: ["/private/tmp/voxstudio-portrait-1.jpg", "/tmp/voxstudio-recording-1.wav"],
+      },
+    });
+
+    expect(report).toContain("脱敏: 已启用");
+    expect(report).not.toContain("hunter2");
+    expect(report).not.toContain("voxstudio-portrait-1.jpg");
+    expect(report).not.toContain("voxstudio-recording-1.wav");
+    expect(report).not.toContain("最近对话文本:");
+    expect(report).not.toContain("媒体文件路径:");
+  });
+
+  it("includes recent transcript and media paths only when redaction is off", () => {
+    const report = buildDiagnosticReport({
+      diagnostics,
+      settings,
+      exportedAt: "2026-08-05T00:00:00Z",
+      redact: false,
+      detail: {
+        recentTranscript: "user: 你好\nassistant: 你好，有什么可以帮你？",
+        mediaPaths: ["/private/tmp/voxstudio-portrait-1.jpg"],
+      },
+    });
+
+    expect(report).toContain("脱敏: 已关闭");
+    expect(report).toContain("最近对话文本:");
+    expect(report).toContain("user: 你好");
+    expect(report).toContain("媒体文件路径:");
+    expect(report).toContain("voxstudio-portrait-1.jpg");
+  });
 });

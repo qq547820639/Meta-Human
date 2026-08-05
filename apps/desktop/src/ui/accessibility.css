@@ -89,4 +89,43 @@ summary:focus-visible,
   html {
     scroll-behavior: auto;
   }
+  /* Disable the decorative movements of the natural-conversation bar, the
+     speaking avatar and the loading / message affordances. Only essential
+     state changes remain. */
+  .natural-conversation-bar,
+  .conversation-avatar,
+  .conversation-avatar-speaking,
+  .conversation-load-more,
+  .conversation-message,
+  .conversation-suggestions button {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* High contrast: force dark-on-light text and strong borders so every control
+   and panel stays legible when the OS requests a high-contrast scheme. */
+@media (forced-colors: active) {
+  :root {
+    color-scheme: light;
+  }
+  button,
+  input,
+  textarea,
+  select,
+  .conversation-modal-panel,
+  .settings-panel,
+  .conversation-workspace-main {
+    border: 1px solid CanvasText;
+    background: Canvas;
+    color: CanvasText;
+  }
+}
+
+/* Font scaling: every UI dimension and font size is defined in rem, so the
+   whole interface follows the OS/browser font size and user zoom. A larger
+   system font size scales the UI without breaking the layout. */
+:root {
+  font-size: 100%;
 }

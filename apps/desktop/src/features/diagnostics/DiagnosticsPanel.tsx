@@ -9,10 +9,19 @@ import {
   SettingsDiagnosticSummary,
 } from "./diagnosticsClient";
 import { buildDiagnosticReport } from "./diagnosticReport";
+import {
+  getProviderMetrics,
+  ProviderMetricsSummary,
+  formatProviderHealth,
+} from "./metricsClient";
+import { listConversationHistory } from "../conversation/conversationClient";
 
 interface DiagnosticsPanelProps {
   readonly settings: AppSettings;
   readonly secretFlags: SecretFlags;
+  /** Media file paths in use (portraits/recordings); included only when the
+   * user explicitly turns redaction off. Defaults to none. */
+  readonly mediaPaths?: readonly string[] | null;
 }
 
 function toSettingsSummary(
@@ -38,11 +47,17 @@ function toSettingsSummary(
 export default function DiagnosticsPanel({
   settings,
   secretFlags,
+  mediaPaths = null,
 }: DiagnosticsPanelProps) {
   const [diagnostics, setDiagnostics] = useState<AppDiagnostics | null>(null);
+  const [metrics, setMetrics] = useState<ProviderMetricsSummary | null>(null);
+  const [metricsError, setMetricsError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  // Redaction is on by default for privacy: conversation text and media paths
+  // are excluded unless the user explicitly opts out.
+  const [redact, setRedact] = useState(true);
 
   useEffect(() => {
     let active = true;
@@ -52,6 +67,13 @@ export default function DiagnosticsPanel({
       })
       .catch(() => {
         if (active) setError("无法读取应用诊断信息。");
+      });
+    getProviderMetrics()
+      .then((value) => {
+        if (active) setMetrics(value);
+      })
+      .catch(() => {
+        if (active) setMetricsError("无法读取 provider 指标。");
       });
     return () => {
       active = false;
@@ -66,10 +88,30 @@ export default function DiagnosticsPanel({
     setExporting(true);
     try {
       const snapshot = diagnostics ?? (await getAppDiagnostics());
+      let detail:
+        | { recentTranscript: string | null; mediaPaths: readonly string[] | null }
+        | undefined;
+      if (!redact) {
+        let recentTranscript: string | null = null;
+        try {
+          const history = await listConversationHistory();
+          const last = history.messages.slice(-6);
+          if (last.length > 0) {
+            recentTranscript = last
+              .map((message) => `${message.role}: ${message.content}`)
+              .join("\n");
+          }
+        } catch {
+          recentTranscript = "(无法读取对话历史)";
+        }
+        detail = { recentTranscript, mediaPaths: mediaPaths ?? null };
+      }
       const report = buildDiagnosticReport({
         diagnostics: snapshot,
         settings: toSettingsSummary(settings, secretFlags),
         exportedAt: new Date().toISOString(),
+        redact,
+        detail,
       });
       const saved = await saveDiagnosticPackage(
         `voxstudio-diagnostics-${snapshot.version}.txt`,
@@ -99,10 +141,47 @@ export default function DiagnosticsPanel({
           {sidecar.lastError ? `，${sidecar.lastError}` : ""}
         </p>
       ) : null}
+
+      <div>
+        <p className="studio-status-title" style={{ marginBottom: "0.25rem" }}>
+          Provider 指标
+        </p>
+        {metrics ? (
+          metrics.providers.length > 0 ? (
+            <ul>
+              {metrics.providers.map((row) => (
+                <li key={row.provider}>{formatProviderHealth(row)}</li>
+              ))}
+              <li>
+                总计 {metrics.total_calls} 次调用 · 错误率{" "}
+                {Math.round(metrics.total_error_rate * 100)}% · 取消率{" "}
+                {Math.round(metrics.total_cancel_rate * 100)}% · 降级率{" "}
+                {Math.round(metrics.total_degraded_rate * 100)}%
+              </li>
+            </ul>
+          ) : (
+            <p>暂无 provider 调用记录。</p>
+          )
+        ) : (
+          <p>{metricsError ?? "读取中…"}</p>
+        )}
+      </div>
+
+      <label style={{ display: "block", margin: "0.5rem 0" }}>
+        <input
+          type="checkbox"
+          checked={redact}
+          onChange={(event) => setRedact(event.target.checked)}
+        />
+        导出时脱敏（不含对话文本与媒体路径）
+      </label>
       <button type="button" onClick={() => void handleExport()} disabled={exporting}>
         {exporting ? "导出中…" : "导出诊断报告"}
       </button>
-      <p>诊断报告包含应用版本、Sidecar 状态与配置摘要，不包含任何密钥。</p>
+      <p>
+        诊断报告包含应用版本、Sidecar 状态、配置摘要与 provider 指标，不包含任何密钥。
+        默认脱敏；关闭脱敏后才会包含最近对话文本与媒体路径。
+      </p>
       {status ? <p role="status">{status}</p> : null}
       {error ? <p role="alert">{error}</p> : null}
     </SettingsPanel>

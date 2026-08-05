@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any, Protocol
@@ -13,6 +14,7 @@ from starlette.middleware.cors import CORSMiddleware
 
 from voxstudio_core.api.routes.conversation import create_conversation_router
 from voxstudio_core.api.routes.memory import create_memory_router
+from voxstudio_core.api.routes.metrics import create_metrics_router
 from voxstudio_core.api.routes.feishu import (
     FeishuOAuthFactory,
     create_feishu_router,
@@ -39,6 +41,12 @@ from voxstudio_core.knowledge.sources import KnowledgeSourceStore
 from voxstudio_core.knowledge.sync import KnowledgeSyncService
 from voxstudio_core.lifecycle import LifecycleNotAcceptingError
 from voxstudio_core.security import BearerTokenGuard
+from voxstudio_core.telemetry import (
+    install_request_id_filter,
+    reset_request_id,
+    set_request_id,
+    valid_request_id,
+)
 from voxstudio_core.persistence.build_job_repository import BuildJobRepository
 from voxstudio_core.persistence.digital_human_repository import (
     DigitalHumanRepository,
@@ -100,20 +108,42 @@ def create_app(
         lifespan=lifespan,
     )
 
+    install_request_id_filter()
+
     @app.middleware("http")
     async def attach_request_id(request: Request, call_next):
-        request_id = new_request_id()
+        incoming = request.headers.get("X-Request-ID")
+        request_id = (
+            incoming
+            if incoming is not None and valid_request_id(incoming)
+            else new_request_id()
+        )
         request.state.request_id = request_id
+        token = set_request_id(request_id)
+        started_at = time.monotonic()
         try:
             response = await call_next(request)
         except Exception as error:
             response = _unexpected_error_response(request, error)
+        duration_ms = (time.monotonic() - started_at) * 1000.0
         response.headers["X-Request-ID"] = request_id
+        logger.info(
+            "request completed",
+            extra={
+                "request_id": request_id,
+                "method": request.method,
+                "path": request.url.path,
+                "status": response.status_code,
+                "duration_ms": round(duration_ms, 1),
+            },
+        )
+        reset_request_id(token)
         return response
 
     _register_error_handlers(app)
     app.include_router(health_router)
     guard = BearerTokenGuard(config.bearer_token)
+    app.include_router(create_metrics_router(guard=guard))
     app.include_router(
         create_readiness_router(
             guard=guard,

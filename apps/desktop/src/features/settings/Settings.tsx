@@ -459,7 +459,7 @@ export default function Settings({ onSettingsApplied }: SettingsProps) {
           onResetSettings={handleResetSettings}
         />
         <DiagnosticsPanel settings={settings} secretFlags={secretFlags} />
-        {/* <UpdatePanel /> */}
+        <UpdatePanel />
         <AdvancedPanel settings={settings} update={update} />
 
         {validationErrors.length > 0 ? (

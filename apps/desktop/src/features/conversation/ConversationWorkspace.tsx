@@ -4,6 +4,7 @@ import ConfirmDialog from "../../ui/ConfirmDialog";
 import ConversationManagement from "./ConversationManagement";
 import ConversationTimeline from "./ConversationTimeline";
 import Composer from "./Composer";
+import NaturalConversationBar from "./NaturalConversationBar";
 import RecoveryBanner from "./RecoveryBanner";
 import { formatMetricsLabel } from "./conversationMetrics";
 import { suggestedQuestions } from "./conversationModel";
@@ -60,6 +61,9 @@ export default function ConversationWorkspace({
     statusLabel,
     ttsFailed,
     avatarFailed,
+    presentation,
+    staticPose,
+    rebuildNonce,
     recordingVoice,
     autoPlay,
     setAutoPlay,
@@ -113,6 +117,19 @@ export default function ConversationWorkspace({
     onVideoPause,
     onVideoEnded,
     onVideoError,
+    naturalActive,
+    naturalStatus,
+    naturalTranscript,
+    naturalMode,
+    naturalSttAvailable,
+    naturalState,
+    enableNatural,
+    disableNatural,
+    setNaturalMode,
+    retryNatural,
+    onTranscriptEdit,
+    onTranscriptConfirm,
+    interruptNatural,
   } = controller;
 
   return (
@@ -129,10 +146,15 @@ export default function ConversationWorkspace({
           <div
             className={`conversation-avatar${
               speaking ? " conversation-avatar-speaking" : ""
+            }${
+              presentation.mode === "static"
+                ? ` conversation-avatar-static conversation-avatar-static-${staticPose}`
+                : ""
             }`}
           >
-            {streamUrl && !avatarFailed ? (
+            {streamUrl && presentation.mode === "live" && !avatarFailed ? (
               <video
+                key={rebuildNonce}
                 className="conversation-avatar-stream"
                 src={streamUrl}
                 autoPlay
@@ -148,6 +170,7 @@ export default function ConversationWorkspace({
               <img
                 src={convertFileSrc(portraitPath)}
                 alt="你的数字人人像"
+                data-pose={staticPose}
               />
             )}
           </div>
@@ -156,7 +179,7 @@ export default function ConversationWorkspace({
         {messages.length === 0 ? (
           <>
             <p className="conversation-empty">你的数字人会在这里回应你。</p>
-            <div className="conversation-suggestions" aria-label="建议问题">
+            <div className="conversation-suggestions" role="group" aria-label="建议问题">
               {suggestedQuestions.map((question) => (
                 <button
                   type="button"
@@ -203,6 +226,31 @@ export default function ConversationWorkspace({
             {statusLabel}
           </p>
         ) : null}
+        {speaking && latestAudioMessage ? (
+          <p
+            className="conversation-subtitle"
+            role="status"
+            aria-live="polite"
+            data-testid="tts-subtitle"
+          >
+            数字人正在朗读：{latestAudioMessage.text}
+          </p>
+        ) : null}
+        <NaturalConversationBar
+          naturalActive={naturalActive}
+          naturalStatus={naturalStatus}
+          naturalTranscript={naturalTranscript}
+          naturalMode={naturalMode}
+          naturalSttAvailable={naturalSttAvailable}
+          naturalState={naturalState}
+          onEnableNatural={() => void enableNatural(naturalMode)}
+          onDisableNatural={() => void disableNatural()}
+          onSetMode={(mode) => setNaturalMode(mode)}
+          onRetry={() => void retryNatural()}
+          onTranscriptEdit={onTranscriptEdit}
+          onTranscriptConfirm={onTranscriptConfirm}
+          onInterrupt={interruptNatural}
+        />
         {streaming ? (
           <button type="button" onClick={() => void handleStop()}>
             停止生成

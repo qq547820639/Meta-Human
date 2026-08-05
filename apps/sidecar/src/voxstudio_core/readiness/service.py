@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+import asyncio
+import time
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Protocol
@@ -8,6 +12,14 @@ from voxstudio_core.capabilities.base import (
     CapabilityCheckRequest,
     CapabilityReady,
     CapabilityTransientFailure,
+)
+from voxstudio_core.metrics import (
+    OUTCOME_CANCELLED,
+    OUTCOME_DEGRADED,
+    OUTCOME_ERROR,
+    OUTCOME_SUCCESS,
+    ProviderMetricsRegistry,
+    registry as default_metrics_registry,
 )
 from voxstudio_core.capabilities.registry import CapabilityAdapterRegistry
 from voxstudio_core.persistence.readiness_repository import (
@@ -59,6 +71,7 @@ class ReadinessService:
         *,
         clock: Callable[[], datetime] | None = None,
         required_capability_ids: frozenset[CapabilityId] | None = None,
+        metrics: ProviderMetricsRegistry | None = None,
     ) -> None:
         self._repository = repository
         self._registry = registry
@@ -66,6 +79,7 @@ class ReadinessService:
         self._required_capability_ids = (
             required_capability_ids or REQUIRED_CAPABILITY_IDS
         )
+        self._metrics = metrics if metrics is not None else default_metrics_registry
 
     async def prepare(self) -> PersistedReadinessRun:
         started_at = self._clock()
@@ -102,7 +116,7 @@ class ReadinessService:
                 updated_at=self._clock(),
             )
 
-            outcome = await adapter.check(request)
+            outcome = await self._execute_check(adapter, request)
             terminal = _terminal_update(request, outcome)
             run = await self._repository.update_capabilities(
                 run.id,
@@ -112,6 +126,48 @@ class ReadinessService:
             )
 
         return run
+
+    async def _execute_check(
+        self,
+        adapter: CapabilityAdapter,
+        request: CapabilityCheckRequest,
+    ) -> CapabilityCheckOutcome:
+        """Run a capability check and record observability metrics for it."""
+        del adapter  # resolved again below; kept for symmetry with the registry
+        provider = request.capability_id.value
+        started_at = time.monotonic()
+        try:
+            outcome = await self._registry.adapter_for(request.capability_id).check(
+                request
+            )
+        except asyncio.CancelledError:
+            self._metrics.record(
+                provider,
+                OUTCOME_CANCELLED,
+                (time.monotonic() - started_at) * 1000.0,
+            )
+            raise
+        except BaseException as error:
+            self._metrics.record(
+                provider,
+                OUTCOME_ERROR,
+                (time.monotonic() - started_at) * 1000.0,
+            )
+            raise error
+        if isinstance(outcome, CapabilityReady):
+            kind = OUTCOME_SUCCESS
+        elif isinstance(outcome, CapabilityTransientFailure):
+            kind = OUTCOME_DEGRADED
+        else:
+            # CapabilityActionRequired means the provider answered but needs
+            # user action; treat it as degraded service for observability.
+            kind = OUTCOME_DEGRADED
+        self._metrics.record(
+            provider,
+            kind,
+            (time.monotonic() - started_at) * 1000.0,
+        )
+        return outcome
 
 
 def _initial_capabilities(
