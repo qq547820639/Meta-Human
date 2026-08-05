@@ -77,7 +77,11 @@ export function useUpdateManager(): UpdateManager {
     dispatch({ type: "CHECK_START" });
     try {
       const result = await checkForUpdates(configOrUnconfigured(config));
-      dispatch({ type: "CHECK_OK", availableVersion: result.availableVersion });
+      if (result.availableVersion === null) {
+        dispatch({ type: "CHECK_NONE" });
+      } else {
+        dispatch({ type: "CHECK_OK", availableVersion: result.availableVersion });
+      }
     } catch (error) {
       const updateError = toUpdateError(error);
       dispatch({ type: "CHECK_FAIL", kind: updateError.kind, message: updateError.message });

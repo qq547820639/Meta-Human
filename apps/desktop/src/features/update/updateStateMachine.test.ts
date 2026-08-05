@@ -153,6 +153,21 @@ describe("updateReducer – signed update lifecycle", () => {
     expect(again.phase).toBe("checking");
   });
 
+  it("CHECK_NONE from checking returns to idle as up-to-date", () => {
+    const state = apply(
+      configured,
+      { type: "CHECK_START" },
+      { type: "CHECK_NONE" },
+    );
+    expect(state.phase).toBe("idle");
+    expect(state.availableVersion).toBeNull();
+    expect(updateStatusLabel(state)).toBe("已是最新版本");
+  });
+
+  it("CHECK_NONE outside checking is illegal", () => {
+    expect(apply(configured, { type: "CHECK_NONE" }).phase).toBe("idle");
+  });
+
   it("RESET returns to idle preserving version and channel", () => {
     const busy = apply(
       configured,

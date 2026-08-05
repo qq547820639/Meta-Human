@@ -84,6 +84,7 @@ export type UpdateAction =
   // check
   | { readonly type: "CHECK_START" }
   | { readonly type: "CHECK_OK"; readonly availableVersion: string }
+  | { readonly type: "CHECK_NONE" }
   | { readonly type: "CHECK_FAIL"; readonly kind: UpdateErrorKind; readonly message: string }
   // download
   | { readonly type: "DOWNLOAD_START" }
@@ -141,6 +142,12 @@ export function updateReducer(
     case "CHECK_FAIL":
       return state.phase === "checking"
         ? errorState(state, action.kind, action.message)
+        : state;
+    case "CHECK_NONE":
+      // No newer version is available on the checked channel; return to idle
+      // ("已是最新版本") and clear any stale update state.
+      return state.phase === "checking"
+        ? { ...state, phase: "idle", availableVersion: null, downloadedBytes: 0, totalBytes: 0, attempt: 0 }
         : state;
     case "DOWNLOAD_START":
       return state.phase === "available"

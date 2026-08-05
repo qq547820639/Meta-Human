@@ -36,8 +36,17 @@
     "active": true,
     "targets": "all",
     "externalBin": ["binaries/digital-human-sidecar"],
+    "createUpdaterArtifacts": true,
     "macOS": {
       "infoPlist": "Info.plist"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "REPLACE_ME_WITH_PRODUCTION_ED25519_PUBKEY",
+      "endpoints": [
+        "https://updates.example.com/{{target}}/{{arch}}/{{current_version}}"
+      ]
     }
   }
 }

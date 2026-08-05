@@ -700,7 +700,7 @@ fn tauri_config_bundles_only_the_sidecar_and_uses_narrow_csp_permissions() {
 
     assert_eq!(
         capability["permissions"],
-        serde_json::json!(["core:default"])
+        serde_json::json!(["core:default", "updater:default"])
     );
     assert!(!capability_text.contains("shell:"));
     assert!(!config_text.contains(STARTUP_TOKEN_ENV));

@@ -457,6 +457,17 @@ pub fn run() {
             app.manage(connection_state.clone());
             app.manage(SidecarDiagnosticsState::default());
             app.manage(ManagedSidecar::start(app.handle(), connection_state));
+            app.manage(updater::UpdateState::default());
+            // Register the real updater plugin, injecting the signature public
+            // key from the environment when provided (the value in
+            // `tauri.conf.json` is a placeholder until production key injection).
+            let mut updater_builder = tauri_plugin_updater::Builder::new();
+            if let Ok(pubkey) = std::env::var("VOXSTUDIO_UPDATE_PUBKEY") {
+                if !pubkey.trim().is_empty() {
+                    updater_builder = updater_builder.pubkey(pubkey);
+                }
+            }
+            app.handle().plugin(updater_builder.build())?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -465,6 +476,9 @@ pub fn run() {
             get_sidecar_connection,
             get_app_diagnostics,
             updater::get_update_config,
+            updater::update_check,
+            updater::update_download,
+            updater::update_install,
             validate_portrait_file,
             validate_recording_file,
             capture_permission_status,
