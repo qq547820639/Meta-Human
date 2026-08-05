@@ -223,6 +223,102 @@ async def test_memory_entry_missing_returns_404(app_client) -> None:
 
 
 @pytest.mark.asyncio
+async def test_memory_entries_filter_by_source(app_client) -> None:
+    client, service, token = app_client
+    await service._repository.create(
+        type="user_fact", content="显式记忆", source="user"
+    )
+    await service._repository.create(
+        type="preference", content="摘要记忆", source="system"
+    )
+
+    filtered = await client.get(
+        "/v1/memory/entries",
+        params={"source": "user"},
+        headers=authorization(token),
+    )
+
+    assert filtered.status_code == 200
+    assert filtered.json()["total"] == 1
+    assert filtered.json()["entries"][0]["source"] == "user"
+
+
+@pytest.mark.asyncio
+async def test_memory_entry_patch_pins_and_disables(app_client) -> None:
+    client, service, token = app_client
+    entry = await service._repository.create(type="user_fact", content="内容")
+
+    response = await client.patch(
+        f"/v1/memory/entries/{entry.id}",
+        headers=authorization(token),
+        json={"pinned": True, "disabled": True},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["pinned"] is True
+    assert body["disabled"] is True
+
+
+@pytest.mark.asyncio
+async def test_memory_entry_permanent_delete_is_verified(app_client) -> None:
+    client, service, token = app_client
+    entry = await service._repository.create(type="user_fact", content="待删除")
+
+    response = await client.delete(
+        f"/v1/memory/entries/{entry.id}/permanent",
+        headers=authorization(token),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["deleted"] is True
+    assert body["verified"] is True
+    assert await service.list_entries() == ()
+
+
+@pytest.mark.asyncio
+async def test_ignore_rules_lifecycle(app_client) -> None:
+    client, _, token = app_client
+
+    created = await client.post(
+        "/v1/memory/ignore-rules",
+        headers=authorization(token),
+        json={"type": "preference"},
+    )
+    assert created.status_code == 200
+    rule_id = created.json()["id"]
+    assert created.json()["type"] == "preference"
+
+    listed = await client.get(
+        "/v1/memory/ignore-rules",
+        headers=authorization(token),
+    )
+    assert listed.status_code == 200
+    assert listed.json()["total"] == 1
+
+    deleted = await client.delete(
+        f"/v1/memory/ignore-rules/{rule_id}",
+        headers=authorization(token),
+    )
+    assert deleted.status_code == 200
+
+    after = await client.get(
+        "/v1/memory/ignore-rules",
+        headers=authorization(token),
+    )
+    assert after.json()["total"] == 0
+
+
+@pytest.mark.asyncio
+async def test_memory_privacy_statement(app_client) -> None:
+    client, _, token = app_client
+    response = await client.get("/v1/memory/privacy", headers=authorization(token))
+    assert response.status_code == 200
+    assert "本机" in response.json()["statement"]
+
+
+@pytest.mark.asyncio
 async def test_extraction_failure_does_not_block_a_reply(
     tmp_path: Path,
 ) -> None:

@@ -6,7 +6,7 @@ import CitationList from "./CitationList";
 afterEach(cleanup);
 
 describe("CitationList", () => {
-  it("renders structured citations with a link to the source", () => {
+  it("renders structured citations with title, source, updated time and snippet", () => {
     render(
       <CitationList
         grounded={true}
@@ -17,6 +17,8 @@ describe("CitationList", () => {
             type: "doc",
             snippet: "这是一个片段。",
             url: "https://feishu.cn/docx/doc-1",
+            sourceUrl: "https://feishu.cn/docx/doc-1",
+            updatedAt: "2026-08-03T00:00:00Z",
           },
         ]}
       />,
@@ -27,6 +29,8 @@ describe("CitationList", () => {
     ).toHaveAttribute("href", "https://feishu.cn/docx/doc-1");
     expect(screen.getByText("doc")).toBeInTheDocument();
     expect(screen.getByText("这是一个片段。")).toBeInTheDocument();
+    expect(screen.getByText(/来源：https:\/\/feishu.cn\/docx\/doc-1/)).toBeInTheDocument();
+    expect(screen.getByText(/更新于/)).toBeInTheDocument();
   });
 
   it("renders a citation without a link when no url is present", () => {
@@ -47,6 +51,14 @@ describe("CitationList", () => {
     expect(
       screen.getByText("这条回答没有引用本地知识。"),
     ).toBeInTheDocument();
+  });
+
+  it("renders a '未使用知识库' marker when there is no reliable basis", () => {
+    render(
+      <CitationList grounded={false} citations={[]} noBasis={true} />,
+    );
+
+    expect(screen.getByText("未使用知识库")).toBeInTheDocument();
   });
 
   it("renders nothing when grounded with no citations", () => {

@@ -45,6 +45,7 @@ async def test_search_returns_relevant_passages_with_citations(
     assert passages[0].score > 0
     assert passages[0].citation() == "[Wearable Guide]"
     assert passages[0].source_url == "https://feishu.cn/docx/doc-1"
+    assert passages[0].updated_at is not None
 
 
 @pytest.mark.asyncio

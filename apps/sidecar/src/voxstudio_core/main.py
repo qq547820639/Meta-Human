@@ -36,6 +36,7 @@ from voxstudio_core.knowledge.memory import ConversationMemoryStore, MemoryServi
 from voxstudio_core.knowledge.indexer import KnowledgeIndexer
 from voxstudio_core.knowledge.retrieval import KnowledgeRetriever
 from voxstudio_core.knowledge.sources import KnowledgeSourceStore
+from voxstudio_core.knowledge.sync import KnowledgeSyncService
 from voxstudio_core.lifecycle import SidecarLifecycle
 from voxstudio_core.persistence.build_job_repository import BuildJobRepository
 from voxstudio_core.persistence.conversation_repository import (
@@ -127,6 +128,7 @@ def build_app(
         digital_humans=digital_humans,
         avatar_stream_client=remote_client,
         knowledge_sources=KnowledgeSourceStore(database),
+        knowledge_sync=KnowledgeSyncService(database),
         privacy_database=database,
         startup_resume=build_job_service,
         memory_service=memory_service,

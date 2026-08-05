@@ -1,0 +1,341 @@
+{
+  "report": {
+    "generated_at": "2026-08-05T03:27:11.748516+00:00Z",
+    "version": "0.1.0",
+    "commit_sha": "39057bdd04de97198883ed0c2b55320a3b2f608c",
+    "cpu_arch": "arm64",
+    "provider_version": "UNKNOWN",
+    "summary": {
+      "total": 26,
+      "pass": 6,
+      "fail": 1,
+      "unverified": 19
+    }
+  },
+  "checks": [
+    {
+      "id": "local.model_discovery",
+      "name": "本地模型发现 /api/tags",
+      "category": "local",
+      "status": "FAIL",
+      "evidence": "GET http://127.0.0.1:11434/api/tags -> connection refused (no local service)",
+      "duration_ms": 34,
+      "error": "connection refused",
+      "fix_hint": "start Ollama/LM Studio on 127.0.0.1:11434, or set VOXSTUDIO_LOCAL_BASE_URL to a running local OpenAI-compatible service",
+      "missing": []
+    },
+    {
+      "id": "local.chat",
+      "name": "本地 Chat 对话",
+      "category": "local",
+      "status": "UNVERIFIED",
+      "evidence": "blocked: local model discovery failed",
+      "duration_ms": 0,
+      "error": null,
+      "fix_hint": "no reachable local OpenAI-compatible service; start it or set VOXSTUDIO_LOCAL_BASE_URL",
+      "missing": []
+    },
+    {
+      "id": "local.embedding",
+      "name": "本地 Embedding 向量",
+      "category": "local",
+      "status": "UNVERIFIED",
+      "evidence": "blocked: local model discovery failed",
+      "duration_ms": 0,
+      "error": null,
+      "fix_hint": "no reachable local OpenAI-compatible service; start it or set VOXSTUDIO_LOCAL_BASE_URL",
+      "missing": []
+    },
+    {
+      "id": "local.stt",
+      "name": "本地 STT 语音转写",
+      "category": "local",
+      "status": "UNVERIFIED",
+      "evidence": "blocked: local model discovery failed",
+      "duration_ms": 0,
+      "error": null,
+      "fix_hint": "no reachable local OpenAI-compatible service; start it or set VOXSTUDIO_LOCAL_BASE_URL",
+      "missing": []
+    },
+    {
+      "id": "local.timeout",
+      "name": "本地超时处理",
+      "category": "local",
+      "status": "UNVERIFIED",
+      "evidence": "blocked: local model discovery failed",
+      "duration_ms": 0,
+      "error": null,
+      "fix_hint": "no reachable local OpenAI-compatible service; start it or set VOXSTUDIO_LOCAL_BASE_URL",
+      "missing": []
+    },
+    {
+      "id": "local.cancel",
+      "name": "本地请求取消",
+      "category": "local",
+      "status": "UNVERIFIED",
+      "evidence": "blocked: local model discovery failed",
+      "duration_ms": 0,
+      "error": null,
+      "fix_hint": "no reachable local OpenAI-compatible service; start it or set VOXSTUDIO_LOCAL_BASE_URL",
+      "missing": []
+    },
+    {
+      "id": "local.error_mapping",
+      "name": "本地错误映射",
+      "category": "local",
+      "status": "UNVERIFIED",
+      "evidence": "blocked: local model discovery failed",
+      "duration_ms": 0,
+      "error": null,
+      "fix_hint": "no reachable local OpenAI-compatible service; start it or set VOXSTUDIO_LOCAL_BASE_URL",
+      "missing": []
+    },
+    {
+      "id": "remote.health",
+      "name": "远程 GPU 健康探测",
+      "category": "remote",
+      "status": "UNVERIFIED",
+      "evidence": "",
+      "duration_ms": 0,
+      "error": null,
+      "fix_hint": "set: VOXSTUDIO_REMOTE_BASE_URL",
+      "missing": [
+        "VOXSTUDIO_REMOTE_BASE_URL"
+      ]
+    },
+    {
+      "id": "remote.voice_enroll",
+      "name": "远程 Voice 注册",
+      "category": "remote",
+      "status": "UNVERIFIED",
+      "evidence": "blocked: remote GPU provider not configured/reachable",
+      "duration_ms": 0,
+      "error": null,
+      "fix_hint": "set: VOXSTUDIO_REMOTE_BASE_URL",
+      "missing": [
+        "VOXSTUDIO_REMOTE_BASE_URL"
+      ]
+    },
+    {
+      "id": "remote.avatar_enroll",
+      "name": "远程 Avatar 注册",
+      "category": "remote",
+      "status": "UNVERIFIED",
+      "evidence": "blocked: remote GPU provider not configured/reachable",
+      "duration_ms": 0,
+      "error": null,
+      "fix_hint": "set: VOXSTUDIO_REMOTE_BASE_URL",
+      "missing": [
+        "VOXSTUDIO_REMOTE_BASE_URL"
+      ]
+    },
+    {
+      "id": "remote.avatar_stream",
+      "name": "远程 Avatar 流（创建/播放/停止/清理）",
+      "category": "remote",
+      "status": "UNVERIFIED",
+      "evidence": "blocked: remote GPU provider not configured/reachable",
+      "duration_ms": 0,
+      "error": null,
+      "fix_hint": "set: VOXSTUDIO_REMOTE_BASE_URL",
+      "missing": [
+        "VOXSTUDIO_REMOTE_BASE_URL"
+      ]
+    },
+    {
+      "id": "remote.tts",
+      "name": "远程 TTS 语音合成",
+      "category": "remote",
+      "status": "UNVERIFIED",
+      "evidence": "blocked: remote GPU provider not configured/reachable",
+      "duration_ms": 0,
+      "error": null,
+      "fix_hint": "set: VOXSTUDIO_REMOTE_BASE_URL",
+      "missing": [
+        "VOXSTUDIO_REMOTE_BASE_URL"
+      ]
+    },
+    {
+      "id": "remote.idempotency_retry_cancel",
+      "name": "远程幂等/重试/取消",
+      "category": "remote",
+      "status": "UNVERIFIED",
+      "evidence": "blocked: remote GPU provider not configured/reachable",
+      "duration_ms": 0,
+      "error": null,
+      "fix_hint": "set: VOXSTUDIO_REMOTE_BASE_URL",
+      "missing": [
+        "VOXSTUDIO_REMOTE_BASE_URL"
+      ]
+    },
+    {
+      "id": "remote.remote_resource_cleanup",
+      "name": "远程资源清理",
+      "category": "remote",
+      "status": "UNVERIFIED",
+      "evidence": "blocked: remote GPU provider not configured/reachable",
+      "duration_ms": 0,
+      "error": null,
+      "fix_hint": "set: VOXSTUDIO_REMOTE_BASE_URL",
+      "missing": [
+        "VOXSTUDIO_REMOTE_BASE_URL"
+      ]
+    },
+    {
+      "id": "feishu.token_validity",
+      "name": "飞书 token 有效性",
+      "category": "feishu",
+      "status": "UNVERIFIED",
+      "evidence": "blocked: Feishu credentials missing",
+      "duration_ms": 0,
+      "error": null,
+      "fix_hint": "set: VOXSTUDIO_FEISHU_APP_ID, VOXSTUDIO_FEISHU_APP_SECRET, VOXSTUDIO_FEISHU_SPACE_ID",
+      "missing": [
+        "VOXSTUDIO_FEISHU_APP_ID",
+        "VOXSTUDIO_FEISHU_APP_SECRET",
+        "VOXSTUDIO_FEISHU_SPACE_ID"
+      ]
+    },
+    {
+      "id": "feishu.space_permission",
+      "name": "飞书 space 权限",
+      "category": "feishu",
+      "status": "UNVERIFIED",
+      "evidence": "blocked: Feishu credentials missing",
+      "duration_ms": 0,
+      "error": null,
+      "fix_hint": "set: VOXSTUDIO_FEISHU_APP_ID, VOXSTUDIO_FEISHU_APP_SECRET, VOXSTUDIO_FEISHU_SPACE_ID",
+      "missing": [
+        "VOXSTUDIO_FEISHU_APP_ID",
+        "VOXSTUDIO_FEISHU_APP_SECRET",
+        "VOXSTUDIO_FEISHU_SPACE_ID"
+      ]
+    },
+    {
+      "id": "feishu.wiki_docx_read",
+      "name": "飞书 Wiki/Docx 读取",
+      "category": "feishu",
+      "status": "UNVERIFIED",
+      "evidence": "blocked: Feishu credentials missing",
+      "duration_ms": 0,
+      "error": null,
+      "fix_hint": "set: VOXSTUDIO_FEISHU_APP_ID, VOXSTUDIO_FEISHU_APP_SECRET, VOXSTUDIO_FEISHU_SPACE_ID",
+      "missing": [
+        "VOXSTUDIO_FEISHU_APP_ID",
+        "VOXSTUDIO_FEISHU_APP_SECRET",
+        "VOXSTUDIO_FEISHU_SPACE_ID"
+      ]
+    },
+    {
+      "id": "feishu.incremental_sync",
+      "name": "飞书增量同步",
+      "category": "feishu",
+      "status": "UNVERIFIED",
+      "evidence": "blocked: Feishu credentials missing",
+      "duration_ms": 0,
+      "error": null,
+      "fix_hint": "set: VOXSTUDIO_FEISHU_APP_ID, VOXSTUDIO_FEISHU_APP_SECRET, VOXSTUDIO_FEISHU_SPACE_ID",
+      "missing": [
+        "VOXSTUDIO_FEISHU_APP_ID",
+        "VOXSTUDIO_FEISHU_APP_SECRET",
+        "VOXSTUDIO_FEISHU_SPACE_ID"
+      ]
+    },
+    {
+      "id": "feishu.revoke_handling",
+      "name": "飞书删除/失效/权限撤销处理",
+      "category": "feishu",
+      "status": "UNVERIFIED",
+      "evidence": "blocked: Feishu credentials missing",
+      "duration_ms": 0,
+      "error": null,
+      "fix_hint": "set: VOXSTUDIO_FEISHU_APP_ID, VOXSTUDIO_FEISHU_APP_SECRET, VOXSTUDIO_FEISHU_SPACE_ID",
+      "missing": [
+        "VOXSTUDIO_FEISHU_APP_ID",
+        "VOXSTUDIO_FEISHU_APP_SECRET",
+        "VOXSTUDIO_FEISHU_SPACE_ID"
+      ]
+    },
+    {
+      "id": "feishu.citation_usable",
+      "name": "飞书回答引用链接可用",
+      "category": "feishu",
+      "status": "UNVERIFIED",
+      "evidence": "blocked: Feishu credentials missing",
+      "duration_ms": 0,
+      "error": null,
+      "fix_hint": "set: VOXSTUDIO_FEISHU_APP_ID, VOXSTUDIO_FEISHU_APP_SECRET, VOXSTUDIO_FEISHU_SPACE_ID",
+      "missing": [
+        "VOXSTUDIO_FEISHU_APP_ID",
+        "VOXSTUDIO_FEISHU_APP_SECRET",
+        "VOXSTUDIO_FEISHU_SPACE_ID"
+      ]
+    },
+    {
+      "id": "lifecycle.conversation_disconnect_resume",
+      "name": "对话断网恢复",
+      "category": "lifecycle",
+      "status": "PASS",
+      "evidence": "conversation (2 msgs) restored after restart for conversation_id=c1",
+      "duration_ms": 19,
+      "error": null,
+      "fix_hint": null,
+      "missing": []
+    },
+    {
+      "id": "lifecycle.build_disconnect_resume",
+      "name": "数字人构建断网恢复",
+      "category": "lifecycle",
+      "status": "PASS",
+      "evidence": "interrupted build job survives restart and is reported resumable (current/list_unfinished)",
+      "duration_ms": 23,
+      "error": null,
+      "fix_hint": null,
+      "missing": []
+    },
+    {
+      "id": "lifecycle.sidecar_crash_restore",
+      "name": "Sidecar 崩溃恢复",
+      "category": "lifecycle",
+      "status": "PASS",
+      "evidence": "sidecar crash restore: interrupted run reopened as RECOVERING, capability rewound to PENDING",
+      "duration_ms": 19,
+      "error": null,
+      "fix_hint": null,
+      "missing": []
+    },
+    {
+      "id": "lifecycle.gui_restart_restore",
+      "name": "GUI 重启后恢复任务/会话",
+      "category": "lifecycle",
+      "status": "PASS",
+      "evidence": "interrupted build job survives restart and is reported resumable (current/list_unfinished)",
+      "duration_ms": 17,
+      "error": null,
+      "fix_hint": null,
+      "missing": []
+    },
+    {
+      "id": "lifecycle.old_db_upgrade_backup",
+      "name": "旧库升级自动备份",
+      "category": "lifecycle",
+      "status": "PASS",
+      "evidence": "old DB (migration 1) upgraded to v13 with auto-backup prepared.sqlite3.bak.13",
+      "duration_ms": 17,
+      "error": null,
+      "fix_hint": null,
+      "missing": []
+    },
+    {
+      "id": "lifecycle.migration_failure_recoverable",
+      "name": "迁移失败自动备份可恢复",
+      "category": "lifecycle",
+      "status": "PASS",
+      "evidence": "backup prepared.sqlite3.bak.13 is restorable and preserves pre-upgrade data",
+      "duration_ms": 14,
+      "error": null,
+      "fix_hint": null,
+      "missing": []
+    }
+  ]
+}

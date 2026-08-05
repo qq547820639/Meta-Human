@@ -41,6 +41,37 @@ interface FeishuKnowledgePanelProps {
   readonly onDeleteSource: (source: KnowledgeSource) => void;
   readonly onOpenDelete: (source: KnowledgeSource) => void;
   readonly onCloseDelete: () => void;
+  readonly onSetEnabled: (source: KnowledgeSource, enabled: boolean) => void;
+  readonly onResync: (source: KnowledgeSource) => void;
+}
+
+
+function statusLabel(source: KnowledgeSource): string {
+  switch (source.status ?? "ready") {
+    case "syncing":
+      return `同步中 ${Math.round(source.syncProgress ?? 0)}%`;
+    case "failed":
+      return "同步失败";
+    case "paused":
+      return "已暂停";
+    case "pending":
+      return "待同步";
+    default:
+      return "已同步";
+  }
+}
+
+function freshnessLabel(freshness: string | undefined): string {
+  switch (freshness) {
+    case "fresh":
+      return "新鲜";
+    case "stale":
+      return "已过期";
+    case "never":
+      return "从未";
+    default:
+      return "未知";
+  }
 }
 
 function stepLabel(step: FeishuVerifyStep): string {
@@ -74,6 +105,8 @@ export default function FeishuKnowledgePanel({
   onDeleteSource,
   onOpenDelete,
   onCloseDelete,
+  onSetEnabled,
+  onResync,
 }: FeishuKnowledgePanelProps) {
   const [feishuCode, setFeishuCode] = useState("");
   const [oauthStatus, setOauthStatus] = useState<string | null>(null);
@@ -269,11 +302,25 @@ export default function FeishuKnowledgePanel({
           {knowledgeSources.map((source) => (
             <li key={source.documentId}>
               {source.title} · {source.chunkCount} 段
+              <span>状态：{statusLabel(source)}</span>
+              <span>新鲜度：{freshnessLabel(source.freshness)}</span>
+              {source.lastError ? (
+                <span className="knowledge-source-error">{source.lastError}</span>
+              ) : null}
               {source.sourceUrl ? (
                 <a href={source.sourceUrl} target="_blank" rel="noreferrer">
                   打开
                 </a>
               ) : null}
+              <button
+                type="button"
+                onClick={() => onSetEnabled(source, !(source.enabled ?? true))}
+              >
+                {source.enabled === false ? "启用" : "暂停"}
+              </button>
+              <button type="button" onClick={() => onResync(source)}>
+                重新同步
+              </button>
               <button
                 type="button"
                 onClick={() => onOpenDelete(source)}

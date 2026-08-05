@@ -1,19 +1,18 @@
 # Provider Readiness
 
-Generated: 2026-08-05T01:47:12Z
-
-> **Corrective note (2026-08-05):** the `OK local ... responding` line below is a
-> **false positive**. No local model service exists on 127.0.0.1:11434; the local
-> proxy (ClashX on 127.0.0.1:7890) intercepts the probe and returns a 502 that curl
-> treats as success (exit 0). Bypassing the proxy (`curl --noproxy '*'`) shows
-> connection refused. All provider paths are therefore **未验证**. See
-> `output/release-acceptance.md`.
+Generated: 2026-08-05T02:52:10Z
 
 ```text
 -- Provider smoke availability --
-OK    local OpenAI-compatible service is responding
-FAIL  VOXSTUDIO_REMOTE_BASE_URL is not set
-FAIL  Feishu access token and space id are not both set
-FAIL  Apple release credentials are not configured
-At least one provider smoke path is available.
+FAIL        local OpenAI-compatible service: connection refused on http://127.0.0.1:11434
+            fix: start Ollama or LM Studio, or set VOXSTUDIO_LOCAL_BASE_URL
+UNVERIFIED  remote GPU provider
+            fix: set VOXSTUDIO_REMOTE_BASE_URL (and VOXSTUDIO_REMOTE_API_KEY if required)
+UNVERIFIED  Feishu knowledge
+            fix: set VOXSTUDIO_FEISHU_APP_ID, VOXSTUDIO_FEISHU_APP_SECRET, and VOXSTUDIO_FEISHU_SPACE_ID
+UNVERIFIED  Apple release signing & notarization
+            fix: missing: Developer ID signing identity (security find-identity); APPLE_TEAM_ID/APPLE_NOTARY_API_KEY/APPLE_NOTARY_KEY_ID/APPLE_NOTARY_ISSUER
+
+Summary: 0 PASS, 1 FAIL, 3 UNVERIFIED
+No real provider is available (some probes failed).
 ```

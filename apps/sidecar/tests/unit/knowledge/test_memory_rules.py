@@ -113,3 +113,26 @@ def test_confidence_for_is_deterministic(rules: MemoryRuleService) -> None:
 def test_needs_confirmation(rules: MemoryRuleService) -> None:
     assert rules.needs_confirmation(0.3) is True
     assert rules.needs_confirmation(0.8) is False
+
+
+def test_source_for_distinguishes_user_vs_system(rules: MemoryRuleService) -> None:
+    assert rules.source_for("请记住我的生日", MEMORY_TYPE_EXPLICIT_REQUEST) == "user"
+    assert rules.source_for("请记住我喜欢咖啡", MEMORY_TYPE_PREFERENCE) == "user"
+    assert rules.source_for("please remember my birthday", MEMORY_TYPE_USER_FACT) == "user"
+    # A plain auto-summarised preference is a system memory.
+    assert rules.source_for("用户喜欢咖啡", MEMORY_TYPE_PREFERENCE) == "system"
+    assert rules.source_for("用户的名字叫小明", MEMORY_TYPE_USER_FACT) == "system"
+
+
+def test_is_duplicate_detects_near_identical(rules: MemoryRuleService) -> None:
+    assert rules.is_duplicate("用户喜欢咖啡", "用户喜欢咖啡") is True
+    assert rules.is_duplicate("用户喜欢和咖啡", "用户喜欢咖啡") is True
+    # A real conflict (polarity flip) is not a duplicate.
+    assert rules.is_duplicate("用户喜欢咖啡", "用户不喜欢咖啡") is False
+    # Unrelated statements are not duplicates.
+    assert rules.is_duplicate("用户喜欢咖啡", "用户喜欢跑步") is False
+
+
+def test_mask_sensitive_hides_content(rules: MemoryRuleService) -> None:
+    assert "银行卡" not in rules.mask_sensitive("我的银行卡密码是123456")
+    assert rules.mask_sensitive("   ") == "   "

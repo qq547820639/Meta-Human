@@ -39,6 +39,8 @@ class ConversationReply:
     confidence: float | None = None
     insufficient_context: bool = False
     suggested_follow_up: str | None = None
+    cited_passages: tuple[RetrievedPassage, ...] = ()
+    no_basis: bool = False
 
 
 class TranscriptionUnavailableError(RuntimeError):
@@ -401,8 +403,12 @@ class ConversationService:
             reply = self._compose_reply(text=full_text, passages=passages)
             yield {
                 "type": "citations",
-                "citations": list(reply.citations),
+                "citations": [
+                    _citation_payload(passage)
+                    for passage in reply.cited_passages
+                ],
                 "grounded": reply.grounded,
+                "no_basis": reply.no_basis,
                 "used_source_ids": list(reply.used_source_ids),
                 "confidence": reply.confidence,
                 "insufficient_context": reply.insufficient_context,
@@ -497,12 +503,16 @@ class ConversationService:
                 citation_urls=tuple(
                     passage.source_url for passage in cited_passages
                 ),
+                cited_passages=cited_passages,
+                no_basis=False,
             )
         return ConversationReply(
             text=text,
             citations=(),
             grounded=False,
             citation_urls=(),
+            cited_passages=(),
+            no_basis=not passages,
         )
 
     def _reply_from_structured(
@@ -532,6 +542,8 @@ class ConversationService:
                 confidence=structured.confidence,
                 insufficient_context=True,
                 suggested_follow_up=structured.suggested_follow_up,
+                cited_passages=(),
+                no_basis=True,
             )
         if cited_passages:
             return ConversationReply(
@@ -547,6 +559,8 @@ class ConversationService:
                 confidence=structured.confidence,
                 insufficient_context=False,
                 suggested_follow_up=structured.suggested_follow_up,
+                cited_passages=cited_passages,
+                no_basis=False,
             )
         return ConversationReply(
             text=structured.answer,
@@ -557,6 +571,8 @@ class ConversationService:
             confidence=structured.confidence,
             insufficient_context=False,
             suggested_follow_up=structured.suggested_follow_up,
+            cited_passages=(),
+            no_basis=not passages,
         )
 
     async def _build_prompt(
@@ -570,7 +586,7 @@ class ConversationService:
         if context is not None:
             sections.append(context)
         if self._memory_service is not None:
-            entries = await self._memory_service.load_for_prompt()
+            entries = await self._memory_service.prepare_for_injection()
             if entries:
                 lines = "\n".join(
                     f"- [{entry.type}] {entry.content}" for entry in entries
@@ -727,9 +743,20 @@ class ConversationService:
             confidence=reply.confidence,
             insufficient_context=reply.insufficient_context,
             suggested_follow_up=reply.suggested_follow_up,
+            cited_passages=reply.cited_passages,
+            no_basis=reply.no_basis,
         )
 
 
 def _default_title(query: str) -> str:
     cleaned = " ".join(query.split())
     return cleaned[:40] or DEFAULT_TITLE
+def _citation_payload(passage: RetrievedPassage) -> dict[str, object]:
+    """Rich citation object surfaced to the UI (title, source, time, snippet)."""
+    return {
+        "id": passage.document_id,
+        "title": passage.title,
+        "source_url": passage.source_url,
+        "updated_at": passage.updated_at,
+        "snippet": passage.content[:200],
+    }

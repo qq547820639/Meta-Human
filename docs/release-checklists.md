@@ -59,3 +59,66 @@ lipo -archs apps/desktop/src-tauri/target/universal-apple-darwin/release/voxstud
 env | grep '^APPLE_'
 # expected: APPLE_TEAM_ID, APPLE_NOTARY_API_KEY, APPLE_NOTARY_KEY_ID, APPLE_NOTARY_ISSUER
 ```
+
+## 签名 / 公证 / 安装闭环（可执行）
+
+这是在正式发布前逐项执行的「正式发布闭环」可执行清单。每一项都对应一个可运行脚本或
+明确的 runbook。**缺凭证 / 无干净 Mac 的项一律标 UNVERIFIED，不得声称通过。**
+
+### 1. 就绪审计（本机可自动化）
+
+```bash
+scripts/verify-release-readiness.sh      # 双架构二进制 + 凭证 + 身份 + 工具
+scripts/smoke-dmg.sh                     # DMG 校验 / 双架构 / 签名校验 / 启动/退出清理
+scripts/test_release_closure.sh          # 发布闭环判定逻辑的轻量回归测试
+```
+
+- [ ] 双架构 sidecar 与 desktop 均为 arm64 + x86_64。
+- [ ] DMG 可挂载、校验合法，app + sidecar 可启动并在退出时清理。
+- [ ] 发布闭环测试脚本全部通过。
+
+### 2. 签名 / 公证 / stapling（需 Developer ID + 公证凭证）
+
+```bash
+scripts/sign-notarize.sh                 # 身份检测 -> codesign -> codesign 校验 -> spctl -> notarytool -> staple -> validate
+```
+
+- [ ] `security find-identity -p codesigning -v` 至少 1 个有效
+      `Developer ID Application` 身份（无则脚本标 UNVERIFIED 并给出取证步骤）。
+- [ ] `codesign --force --deep --timestamp --options runtime --sign "<identity>"` 成功。
+- [ ] `codesign --verify --deep --strict` 通过，且 `Signature` 非 `adhoc`。
+- [ ] `spctl --assess --type execute` 接受（非 rejected）。
+- [ ] `xcrun notarytool submit ... --wait` 返回 `Accepted`。
+- [ ] `xcrun stapler staple` 与 `xcrun stapler validate` 成功。
+
+**缺凭证时脚本行为：** 无身份 / 无 `APPLE_TEAM_ID`、`APPLE_NOTARY_API_KEY`、
+`APPLE_NOTARY_KEY_ID`、`APPLE_NOTARY_ISSUER` 时，输出 UNVERIFIED 并以退出码 2 结束，
+绝不伪造通过。
+
+### 3. 发布闭环验收（本机 + 目标机）
+
+```bash
+scripts/release-closure.sh                          # 双架构 / 签名 / spctl / staple / 权限 / 离线
+scripts/release-closure.sh --offline                # 尝试真实断网启动（需免密 sudo 切换网络）
+scripts/release-closure.sh --install-root <已安装App> # 校验已安装实例的覆盖/卸载/崩溃清理
+```
+
+- [ ] 双架构二进制存在（sidecar / desktop / app 内两个二进制）。
+- [ ] app 非 ad-hoc 签名且 `spctl` 接受。
+- [ ] DMG 已 staple（`stapler validate`）。
+- [ ] 断网启动：断网后 app + sidecar 正常启动、无 provider 调用挂起。
+- [ ] 首次权限：干净 Mac 上首次启动触发相机 / 麦克风 TCC 授权，可授予并保存到钥匙串。
+- [ ] 覆盖升级：保留数据目录覆盖安装新版，数据库迁移生成 `.bak.<版本>`，会话/设置保留。
+- [ ] 卸载清理：删除 app 与数据目录后无残留进程/文件。
+- [ ] 崩溃清理：kill 主程序后无残留进程，重启可恢复，临时资源(像/录音)释放。
+
+### 4. 钉死项（当前环境）
+
+在补齐凭证 / 干净 Mac 前，以下保持 UNVERIFIED 并作为发布阻塞项：
+
+| 项 | 缺什么 | 当前状态 |
+| --- | --- | --- |
+| Developer ID 签名 | Developer ID Application 证书（有效 codesigning 身份） | 本机 0 个有效身份，UNVERIFIED |
+| notarization / stapling | `APPLE_TEAM_ID` + 三个 notary 凭证 | 未配置，UNVERIFIED |
+| 干净安装 + 首次权限 | 干净 Mac + 真实 TCC 交互 | 无干净 Mac，UNVERIFIED |
+| 断网启动 / 覆盖升级 / 卸载 / 崩溃清 | 真实安装环境 / 免密 sudo | 未执行，UNVERIFIED |

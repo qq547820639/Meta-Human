@@ -51,6 +51,41 @@ class KnowledgeIndexer:
                 )
         return len(chunks)
 
+    async def has_unchanged_content(
+        self,
+        *,
+        document_id: str,
+        content: str,
+    ) -> bool:
+        """True when the document already holds exactly this content.
+
+        Lets callers skip re-indexing on an incremental sync (content hash
+        unchanged) while still touching ``synced_at``.
+        """
+        content_hash = sha256(content.encode("utf-8")).hexdigest()
+        async with self._database.transaction(immediate=False) as connection:
+            async with connection.execute(
+                "SELECT content_hash FROM knowledge_documents WHERE id = ?",
+                (document_id,),
+            ) as cursor:
+                row = await cursor.fetchone()
+        return row is not None and row["content_hash"] == content_hash
+
+    async def touch(
+        self,
+        *,
+        document_id: str,
+        synced_at: datetime | None = None,
+    ) -> bool:
+        """Refresh ``synced_at`` without re-indexing (unchanged content)."""
+        resolved = _serialize_timestamp(synced_at or datetime.now(UTC))
+        async with self._database.transaction() as connection:
+            cursor = await connection.execute(
+                "UPDATE knowledge_documents SET synced_at = ? WHERE id = ?",
+                (resolved, document_id),
+            )
+            return cursor.rowcount == 1
+
     async def delete_document(self, *, document_id: str) -> bool:
         async with self._database.transaction() as connection:
             cursor = await connection.execute(

@@ -119,6 +119,7 @@ export default function ConversationTimeline({
               <CitationList
                 citations={message.citations}
                 grounded={message.grounded ?? false}
+                noBasis={message.noBasis}
               />
             ) : null}
             {message.role === "assistant" && message.audioBase64 && !readOnly ? (

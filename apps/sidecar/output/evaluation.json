@@ -1,0 +1,72 @@
+{
+  "k": 3,
+  "data_source": "数据来源：内置样例测试集（SAMPLE_TEST_SET），无真实飞书知识源；接入真实知识源后以真实文档重跑即可得到生产指标。",
+  "metrics": {
+    "recall_at_k": 1.0,
+    "citation_accuracy": 1.0,
+    "no_basis_rate": 0.2
+  },
+  "cases": [
+    {
+      "query": "外骨骼应该怎么穿戴",
+      "expected": [
+        "doc-wearable"
+      ],
+      "retrieved": [
+        "doc-wearable",
+        "doc-maintenance"
+      ],
+      "recall_at_k": 1.0,
+      "citation_accurate": true,
+      "no_basis": false
+    },
+    {
+      "query": "飞书知识库如何增量同步",
+      "expected": [
+        "doc-feishu"
+      ],
+      "retrieved": [
+        "doc-feishu",
+        "doc-wearable"
+      ],
+      "recall_at_k": 1.0,
+      "citation_accurate": true,
+      "no_basis": false
+    },
+    {
+      "query": "设备导轨多久需要润滑",
+      "expected": [
+        "doc-maintenance"
+      ],
+      "retrieved": [
+        "doc-maintenance",
+        "doc-tts"
+      ],
+      "recall_at_k": 1.0,
+      "citation_accurate": true,
+      "no_basis": false
+    },
+    {
+      "query": "语音回复是怎么生成的",
+      "expected": [
+        "doc-tts"
+      ],
+      "retrieved": [
+        "doc-tts",
+        "doc-wearable",
+        "doc-feishu"
+      ],
+      "recall_at_k": 1.0,
+      "citation_accurate": true,
+      "no_basis": false
+    },
+    {
+      "query": "鲸磷虾苔原矿石",
+      "expected": [],
+      "retrieved": [],
+      "recall_at_k": 1.0,
+      "citation_accurate": true,
+      "no_basis": true
+    }
+  ]
+}

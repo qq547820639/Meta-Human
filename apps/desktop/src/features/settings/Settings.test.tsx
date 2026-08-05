@@ -1,4 +1,11 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import Settings from "./Settings";
@@ -36,6 +43,7 @@ vi.mock("./settingsClient", () => ({
   startFeishuOauth: vi.fn(),
   restartSidecar: vi.fn(),
   resetAllSettings: vi.fn(),
+  openSystemPermissions: vi.fn(),
 }));
 
 vi.mock("../knowledge/knowledgeClient", () => ({
@@ -82,7 +90,15 @@ vi.mock("../memory/memoryClient", () => ({
     "habit",
     "explicit_request",
   ],
+  MEMORY_SOURCES: ["user", "system"],
   memoryTypeLabel: (type: string) => type,
+  memorySourceLabel: (source: string) => source,
+  memoryScopeLabel: (scope: string) => scope,
+  getMemoryPrivacyStatement: vi.fn(() => Promise.resolve("隐私说明")),
+  createMemoryIgnoreRule: vi.fn(),
+  deleteMemoryIgnoreRule: vi.fn(),
+  listMemoryIgnoreRules: vi.fn(() => Promise.resolve([])),
+  permanentDeleteMemoryEntry: vi.fn(),
   listMemoryEntries: vi.fn(),
   updateMemoryEntry: vi.fn(),
   deleteMemoryEntry: vi.fn(),
@@ -92,6 +108,7 @@ vi.mock("../memory/memoryClient", () => ({
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  vi.unstubAllGlobals();
 });
 
 beforeEach(() => {
@@ -103,6 +120,12 @@ beforeEach(() => {
   vi.mocked(deleteMemoryEntry).mockResolvedValue(fixtureEntry());
   vi.mocked(clearMemoryEntries).mockResolvedValue(undefined);
   vi.mocked(resetAllSettings).mockResolvedValue(undefined);
+  // Default: never hit the network during post-save verification. Tests that
+  // exercise model scanning override this with their own fetch stub.
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => new Response("not found", { status: 404 })),
+  );
 });
 
 function fixtureEntry(overrides: Partial<Record<string, unknown>> = {}) {
@@ -119,6 +142,11 @@ function fixtureEntry(overrides: Partial<Record<string, unknown>> = {}) {
     sensitive: false,
     expires_at: null,
     conflict_group: null,
+    source: "system",
+    scope: "global",
+    scope_id: null,
+    pinned: false,
+    disabled: false,
     ...overrides,
   };
 }
@@ -128,6 +156,8 @@ describe("Settings", () => {
     vi.mocked(loadAppSettings).mockResolvedValue({
       settings: {
         localBaseUrl: "http://127.0.0.1:11434",
+        localChatModel: "llama3",
+        localEmbeddingModel: "nomic-embed-text",
         feishuSpaceId: "space-1",
       },
       remoteApiKeySet: true,
@@ -152,7 +182,7 @@ describe("Settings", () => {
     fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
 
     await waitFor(() =>
-      expect(screen.getByRole("status")).toHaveTextContent(
+      expect(screen.getByTestId("settings-save-status")).toHaveTextContent(
         "设置已保存，正在重新确认准备状态。",
       ),
     );
@@ -372,7 +402,7 @@ describe("Settings", () => {
     );
 
     await waitFor(() =>
-      expect(screen.getByRole("status")).toHaveTextContent(
+      expect(screen.getByTestId("settings-save-status")).toHaveTextContent(
         "已清除已保存的密钥，正在重新确认准备状态。",
       ),
     );
@@ -453,7 +483,7 @@ describe("Settings", () => {
     fireEvent.click(screen.getByRole("button", { name: "清空" }));
 
     await waitFor(() =>
-      expect(screen.getByRole("status")).toHaveTextContent(
+      expect(screen.getByTestId("settings-save-status")).toHaveTextContent(
         "已清空对话、记忆和知识来源。",
       ),
     );
@@ -577,7 +607,7 @@ describe("Settings", () => {
     fireEvent.click(screen.getByRole("button", { name: "测试本地连接" }));
 
     await waitFor(() =>
-      expect(screen.getByText("请先填写本地服务地址。")).toBeInTheDocument(),
+      expect(screen.getByText("请先配置本地服务地址")).toBeInTheDocument(),
     );
     expect(checkLocalProvider).not.toHaveBeenCalled();
   });
@@ -601,7 +631,7 @@ describe("Settings", () => {
     fireEvent.click(screen.getByRole("button", { name: "测试本地连接" }));
 
     await waitFor(() =>
-      expect(screen.getByText("本地服务网络不可达。")).toBeInTheDocument(),
+      expect(screen.getByText("本地服务当前无法连接")).toBeInTheDocument(),
     );
   });
 
@@ -657,7 +687,11 @@ describe("Settings", () => {
 
   it("shows a dirty indicator for unsaved changes and clears it after saving", async () => {
     vi.mocked(loadAppSettings).mockResolvedValue({
-      settings: { localBaseUrl: "http://127.0.0.1:11434" },
+      settings: {
+        localBaseUrl: "http://127.0.0.1:11434",
+        localChatModel: "llama3",
+        localEmbeddingModel: "nomic-embed-text",
+      },
       remoteApiKeySet: false,
       feishuAppSecretSet: false,
       feishuAccessTokenSet: false,
@@ -685,7 +719,7 @@ describe("Settings", () => {
     fireEvent.click(screen.getByRole("button", { name: "保存设置（未保存改动）" }));
 
     await waitFor(() =>
-      expect(screen.getByRole("status")).toHaveTextContent(
+      expect(screen.getByTestId("settings-save-status")).toHaveTextContent(
         "设置已保存，正在重新确认准备状态。",
       ),
     );
@@ -693,4 +727,151 @@ describe("Settings", () => {
       screen.queryByText("有未保存的改动。"),
     ).not.toBeInTheDocument();
   });
+
+  it("scans local services and offers model dropdowns", async () => {
+    vi.mocked(loadAppSettings).mockResolvedValue({
+      settings: {},
+      remoteApiKeySet: false,
+      feishuAppSecretSet: false,
+      feishuAccessTokenSet: false,
+      feishuRefreshTokenSet: false,
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockImplementation(async (input) => {
+        const url = String(input);
+        if (url.includes("127.0.0.1:1234")) {
+          return new Response("not found", { status: 404 });
+        }
+        return new Response(
+          JSON.stringify({
+            data: [
+              { id: "llama3" },
+              { id: "nomic-embed-text" },
+              { id: "whisper" },
+            ],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }),
+    );
+
+    render(<Settings />);
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "扫描本地模型服务" }),
+      ).toBeInTheDocument(),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "扫描本地模型服务" }),
+    );
+
+    const probeResults = await waitFor(() =>
+      within(screen.getByTestId("probe-results")).getByLabelText("对话模型"),
+    );
+    expect(probeResults.tagName).toBe("SELECT");
+    expect(
+      within(screen.getByTestId("probe-results")).getByLabelText("嵌入模型"),
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId("probe-results")).getByLabelText("语音识别模型"),
+    ).toBeInTheDocument();
+    // The detected service auto-fills the address field.
+    expect(screen.getByLabelText("本地服务地址")).toHaveValue(
+      "http://127.0.0.1:11434",
+    );
+  });
+
+  it("blocks save when a required local model is missing", async () => {
+    vi.mocked(loadAppSettings).mockResolvedValue({
+      settings: { localBaseUrl: "http://127.0.0.1:11434" },
+      remoteApiKeySet: false,
+      feishuAppSecretSet: false,
+      feishuAccessTokenSet: false,
+      feishuRefreshTokenSet: false,
+    });
+
+    render(<Settings />);
+    await waitFor(() =>
+      expect(screen.getByLabelText("本地服务地址")).toHaveValue(
+        "http://127.0.0.1:11434",
+      ),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("本地对话模型未选择。"),
+      ).toBeInTheDocument(),
+    );
+    expect(screen.getByText("本地嵌入模型未选择。")).toBeInTheDocument();
+    expect(saveAppSettings).not.toHaveBeenCalled();
+  });
+
+  it("runs a real verification after saving", async () => {
+    vi.mocked(loadAppSettings).mockResolvedValue({
+      settings: {
+        localBaseUrl: "http://127.0.0.1:11434",
+        localChatModel: "llama3",
+        localEmbeddingModel: "nomic-embed-text",
+      },
+      remoteApiKeySet: false,
+      feishuAppSecretSet: false,
+      feishuAccessTokenSet: false,
+      feishuRefreshTokenSet: false,
+    });
+    vi.mocked(saveAppSettings).mockResolvedValue(undefined);
+    vi.mocked(restartSidecar).mockResolvedValue(undefined);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            data: [
+              { id: "llama3" },
+              { id: "nomic-embed-text" },
+              { id: "whisper" },
+            ],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      ),
+    );
+
+    render(<Settings />);
+    await waitFor(() =>
+      expect(screen.getByLabelText("本地服务地址")).toHaveValue(
+        "http://127.0.0.1:11434",
+      ),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("post-save-verification"),
+      ).toHaveTextContent(
+        "保存后验证成功：本地服务可连接，检测到 3 个可用模型。",
+      ),
+    );
+  });
+
+  it("expands advanced settings when clicked", async () => {
+    vi.mocked(loadAppSettings).mockResolvedValue({
+      settings: {},
+      remoteApiKeySet: false,
+      feishuAppSecretSet: false,
+      feishuAccessTokenSet: false,
+      feishuRefreshTokenSet: false,
+    });
+
+    render(<Settings />);
+    await waitFor(() =>
+      expect(screen.getByText("高级设置")).toBeInTheDocument(),
+    );
+    const advanced = screen.getByLabelText("高级设置");
+    expect(advanced).not.toHaveAttribute("open");
+    fireEvent.click(screen.getByText("高级设置"));
+    expect(advanced).toHaveAttribute("open");
+  });
 });
+

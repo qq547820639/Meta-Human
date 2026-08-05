@@ -13,6 +13,7 @@ class RetrievedPassage:
     content: str
     score: int
     source_url: str | None = None
+    updated_at: str | None = None
 
     def citation(self) -> str:
         return f"[{self.title}]"
@@ -42,7 +43,8 @@ class KnowledgeRetriever:
                     d.id AS document_id,
                     d.title AS title,
                     c.content AS content,
-                    d.source_url AS source_url
+                    d.source_url AS source_url,
+                    d.synced_at AS updated_at
                 FROM knowledge_chunks c
                 JOIN knowledge_documents d ON d.id = c.document_id
                 ORDER BY c.document_id, c.position
@@ -66,6 +68,7 @@ class KnowledgeRetriever:
                     content=row["content"],
                     score=score,
                     source_url=row["source_url"],
+                    updated_at=row["updated_at"],
                 )
             )
 
@@ -91,6 +94,7 @@ class KnowledgeRetriever:
                         d.id AS document_id,
                         d.title AS title,
                         d.source_url AS source_url,
+                        d.synced_at AS updated_at,
                         c.content AS content
                     FROM knowledge_chunks_fts f
                     JOIN knowledge_chunks c ON c.id = f.rowid
@@ -114,6 +118,7 @@ class KnowledgeRetriever:
                     len(query_terms & _terms(row["title"])) + 1
                 ),
                 source_url=row["source_url"],
+                updated_at=row["updated_at"],
             )
             for row in rows
         )

@@ -126,6 +126,48 @@ class MemoryRuleService:
             return False
         return True
 
+    def source_for(self, content: str, memory_type: str) -> str:
+        """Whether a memory comes from the user explicitly (user) or from
+        automatic summarisation (system).
+
+        Explicit-request statements ("请记住…", "remind me…") are treated as
+        user-sourced; everything else is a system auto-summary.
+        """
+        if memory_type == MEMORY_TYPE_EXPLICIT_REQUEST:
+            return "user"
+        normalized = (content or "").casefold()
+        for keyword in (
+            "请记住",
+            "请务必记住",
+            "please remember",
+            "remind me",
+            "please note",
+        ):
+            if keyword in normalized:
+                return "user"
+        return "system"
+
+    def is_duplicate(self, existing: str, new: str) -> bool:
+        """True when `new` adds nothing beyond `existing` (near-identical).
+
+        Used to deduplicate before persistence and before injection. A real
+        conflict (polarity flip) is NOT a duplicate.
+        """
+        existing_tokens = _tokens(existing)
+        new_tokens = _tokens(new)
+        if not existing_tokens or not new_tokens:
+            return False
+        if existing_tokens == new_tokens:
+            return True
+        overlap = len(existing_tokens & new_tokens) / len(new_tokens)
+        return overlap >= 0.85 and not self.detect_conflict(existing, new)
+
+    def mask_sensitive(self, content: str) -> str:
+        """Replace a sensitive memory with a safe placeholder for injection."""
+        if not content or not content.strip():
+            return content
+        return "[已隐藏的敏感信息]"
+
     def detect_conflict(self, existing: str, new: str) -> bool:
         """Conflicting memories are marked rather than overwritten.
 

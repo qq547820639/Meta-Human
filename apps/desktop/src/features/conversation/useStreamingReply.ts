@@ -163,6 +163,7 @@ export function useStreamingReply({
 
     let citations: Citation[] = [];
     let grounded = false;
+    let noBasis = false;
     let generating = false;
 
     try {
@@ -204,9 +205,10 @@ export function useStreamingReply({
               scheduleTokenFlush();
             }
           },
-          onCitations: (nextCitations, nextGrounded) => {
+          onCitations: (nextCitations, nextGrounded, nextNoBasis) => {
             citations = nextCitations;
             grounded = nextGrounded;
+            noBasis = nextNoBasis ?? false;
           },
           onDone: (text) => {
             cancelTokenFlush();
@@ -220,6 +222,7 @@ export function useStreamingReply({
                       text,
                       citations,
                       grounded,
+                      noBasis,
                       regenerated: markRegenerated,
                     }
                   : message,

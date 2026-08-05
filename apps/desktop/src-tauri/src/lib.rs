@@ -5,6 +5,7 @@ pub mod readiness;
 pub mod recording;
 pub mod settings;
 pub mod sidecar;
+pub mod updater;
 pub use readiness::{derive_readiness_snapshot, get_readiness_snapshot};
 
 use crate::keychain::MacKeychainTokenStore;
@@ -353,6 +354,20 @@ fn open_feishu_authorization(app_id: String, redirect_uri: String) -> Result<Str
     Ok(url)
 }
 
+#[tauri::command]
+fn open_system_permissions() -> Result<(), String> {
+    // Opens the macOS Privacy & Security settings pane so users can grant
+    // microphone/camera permissions the wizard asked about.
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("open")
+            .arg("x-apple.systempreferences:com.apple.preference.security?Privacy")
+            .spawn()
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
 pub fn parse_feishu_code_from_request(request: &str) -> Result<String, String> {
     let path = request
         .lines()
@@ -437,6 +452,7 @@ pub fn run() {
             readiness::derive_readiness_snapshot,
             get_sidecar_connection,
             get_app_diagnostics,
+            updater::get_update_config,
             validate_portrait_file,
             validate_recording_file,
             capture_permission_status,
@@ -456,6 +472,7 @@ pub fn run() {
             check_local_provider,
             check_remote_provider,
             open_feishu_authorization,
+            open_system_permissions,
             start_feishu_oauth
         ])
         .build(tauri::generate_context!())

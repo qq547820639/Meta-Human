@@ -10,6 +10,8 @@ export interface ChatMessage {
   readonly createdAt?: string;
   readonly citations?: readonly Citation[];
   readonly grounded?: boolean;
+  /** True when the reply had no reliable knowledge source to ground on. */
+  readonly noBasis?: boolean;
   readonly audioBase64?: string | null;
   /** True when this assistant reply was produced by regenerating or editing. */
   readonly regenerated?: boolean;

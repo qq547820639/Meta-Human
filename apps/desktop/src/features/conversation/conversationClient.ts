@@ -158,6 +158,8 @@ export interface Citation {
   readonly type: string;
   readonly snippet?: string | null;
   readonly url?: string | null;
+  readonly sourceUrl?: string | null;
+  readonly updatedAt?: string | null;
 }
 
 export interface ConversationStreamEvents {
@@ -165,7 +167,11 @@ export interface ConversationStreamEvents {
   readonly onStage?: (stage: StreamStage) => void;
   readonly onFoundSources?: (count: number) => void;
   readonly onToken?: (text: string) => void;
-  readonly onCitations?: (citations: Citation[], grounded: boolean) => void;
+  readonly onCitations?: (
+    citations: Citation[],
+    grounded: boolean,
+    noBasis?: boolean,
+  ) => void;
   readonly onDone?: (text: string) => void;
   readonly onAudio?: (audioBase64: string) => void;
   /**
@@ -393,7 +399,11 @@ function handleStreamLine(
       const citations = Array.isArray(raw)
         ? raw.map(normalizeCitation)
         : [];
-      events?.onCitations?.(citations, parsed.grounded === true);
+      events?.onCitations?.(
+        citations,
+        parsed.grounded === true,
+        parsed.no_basis === true,
+      );
       break;
     }
     case "done": {
@@ -441,7 +451,7 @@ function normalizeCitation(raw: unknown): Citation {
   if (typeof raw === "string") {
     return { id: raw, title: raw, type: "source" };
   }
-  const obj = (raw ?? {}) as Partial<Citation>;
+  const obj = (raw ?? {}) as Record<string, unknown>;
   const id =
     typeof obj.id === "string"
       ? obj.id
@@ -454,6 +464,18 @@ function normalizeCitation(raw: unknown): Citation {
     type: typeof obj.type === "string" ? obj.type : "source",
     snippet: typeof obj.snippet === "string" ? obj.snippet : null,
     url: typeof obj.url === "string" ? obj.url : null,
+    sourceUrl:
+      typeof obj.sourceUrl === "string"
+        ? obj.sourceUrl
+        : typeof obj.source_url === "string"
+          ? obj.source_url
+          : null,
+    updatedAt:
+      typeof obj.updated_at === "string"
+        ? obj.updated_at
+        : typeof obj.updatedAt === "string"
+          ? obj.updatedAt
+          : null,
   };
 }
 

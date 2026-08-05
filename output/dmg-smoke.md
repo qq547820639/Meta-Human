@@ -1,6 +1,6 @@
 # Packaged DMG Smoke
 
-Generated: 2026-08-03T07:35:19Z
+Generated: 2026-08-05T03:47:36Z
 
 ```text
 Verifying DMG checksum...
@@ -14,4 +14,5 @@ PASS  app and sidecar started
 Quitting packaged app...
 PASS  app and sidecar exited
 hdiutil: WARNING: 'hdiutil detach ...' is deprecated. Please use 'diskutil eject ...' instead.
+hdiutil: couldn't unmount "disk6" - 资源忙
 ```

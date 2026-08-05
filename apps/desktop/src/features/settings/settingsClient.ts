@@ -148,3 +148,8 @@ export function startFeishuOauth(
     appId,
   });
 }
+
+/** Opens the operating-system privacy & permissions settings (best effort). */
+export function openSystemPermissions(): Promise<void> {
+  return invoke<void>("open_system_permissions");
+}

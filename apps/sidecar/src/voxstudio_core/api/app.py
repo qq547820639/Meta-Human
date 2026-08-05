@@ -36,6 +36,7 @@ from voxstudio_core.errors import (
 from voxstudio_core.knowledge.conversation import ConversationService
 from voxstudio_core.knowledge.memory import MemoryService
 from voxstudio_core.knowledge.sources import KnowledgeSourceStore
+from voxstudio_core.knowledge.sync import KnowledgeSyncService
 from voxstudio_core.lifecycle import LifecycleNotAcceptingError
 from voxstudio_core.security import BearerTokenGuard
 from voxstudio_core.persistence.build_job_repository import BuildJobRepository
@@ -76,6 +77,7 @@ def create_app(
     avatar_stream_client: RemoteGpuClient | None = None,
     feishu_oauth_factory: FeishuOAuthFactory | None = None,
     knowledge_sources: KnowledgeSourceStore | None = None,
+    knowledge_sync: KnowledgeSyncService | None = None,
     privacy_database: Database | None = None,
     startup_resume: StartupResumePort | None = None,
     memory_service: MemoryService | None = None,
@@ -129,6 +131,7 @@ def create_app(
             create_knowledge_router(
                 guard=guard,
                 store=knowledge_sources,
+                sync=knowledge_sync,
             )
         )
     if privacy_database is not None:
