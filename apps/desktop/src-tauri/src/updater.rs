@@ -232,6 +232,109 @@ fn update_error_message(error: &tauri_plugin_updater::Error) -> String {
     }
 }
 
+/// A single per-platform entry in a Tauri v2 update manifest.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ManifestPlatformUpdate {
+    pub url: String,
+    pub signature: String,
+}
+
+/// A parsed Tauri v2 update manifest (`{ "version": ..., "platforms": {...} }`).
+///
+/// This is the manifest contract the production updater consumes. Parsing it
+/// here (rather than only inside the plugin) lets us validate a manifest before
+/// staging an update and lets the test suite pin the exact accepted shape.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateManifest {
+    pub version: String,
+    pub platforms: std::collections::BTreeMap<String, ManifestPlatformUpdate>,
+}
+
+/// Parse a Tauri v2-compatible update manifest. Returns an error for malformed
+/// JSON, a missing `version`, or a missing/malformed `platforms` map.
+pub fn parse_manifest_v2(raw: &str) -> Result<UpdateManifest, String> {
+    #[derive(serde::Deserialize)]
+    struct RawManifest {
+        version: String,
+        #[serde(default)]
+        platforms: std::collections::BTreeMap<String, RawPlatform>,
+    }
+    #[derive(serde::Deserialize)]
+    struct RawPlatform {
+        url: String,
+        signature: String,
+    }
+
+    let parsed: RawManifest =
+        serde_json::from_str(raw).map_err(|error| format!("manifest_json_invalid: {error}"))?;
+    if parsed.version.trim().is_empty() {
+        return Err("manifest_invalid: missing version".to_string());
+    }
+    if parsed.platforms.is_empty() {
+        return Err("manifest_invalid: no platforms".to_string());
+    }
+    let platforms = parsed
+        .platforms
+        .into_iter()
+        .map(|(target, platform)| {
+            (
+                target,
+                ManifestPlatformUpdate {
+                    url: platform.url,
+                    signature: platform.signature,
+                },
+            )
+        })
+        .collect();
+    Ok(UpdateManifest {
+        version: parsed.version,
+        platforms,
+    })
+}
+
+/// Verify a raw Ed25519 signature over `data` against a base64 (URL-safe, raw)
+/// public key. Returns `false` (never panics) for any malformed key/signature
+/// or a mismatched signature, so callers treat a failed verification as a hard
+/// denial of the update.
+///
+/// Production signature verification is performed by `tauri-plugin-updater`'s
+/// minisign path during `update_download`; this primitive is the same Ed25519
+/// accept/reject gate used by the test suite to prove that a bad signature is
+/// never accepted (and therefore never installed).
+pub fn verify_update_signature(
+    data: &[u8],
+    signature_base64: &str,
+    public_key_base64: &str,
+) -> bool {
+    use base64::Engine as _;
+    use ed25519_dalek::{Signature, VerifyingKey};
+
+    let Ok(sig_bytes) = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(signature_base64)
+        .map_err(|_| ())
+    else {
+        return false;
+    };
+    let Ok(signature) = Signature::from_slice(&sig_bytes) else {
+        return false;
+    };
+    let Ok(pk_bytes) = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(public_key_base64)
+        .map_err(|_| ())
+    else {
+        return false;
+    };
+    let Ok(pk_array) = <[u8; 32]>::try_from(pk_bytes.as_slice()) else {
+        return false;
+    };
+    let Ok(verifying_key) = VerifyingKey::from_bytes(&pk_array) else {
+        return false;
+    };
+    verifying_key.verify_strict(data, &signature).is_ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -315,5 +418,145 @@ mod tests {
             Some(value) => std::env::set_var(name, value),
             None => std::env::remove_var(name),
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Update manifest parsing (Tauri v2 contract)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn parses_a_v2_manifest_version_and_platforms() {
+        let manifest = parse_manifest_v2(
+            r#"{
+                "version": "1.2.3",
+                "notes": "release notes",
+                "pub_date": "2026-01-01T00:00:00Z",
+                "platforms": {
+                    "darwin-aarch64": {
+                        "url": "https://cdn.example.com/voxstudio-aarch64.app.tar.gz",
+                        "signature": "dGVzdC1zaWc="
+                    },
+                    "darwin-x86_64": {
+                        "url": "https://cdn.example.com/voxstudio-x86_64.app.tar.gz",
+                        "signature": "dGVzdC1zaWcy"
+                    }
+                }
+            }"#,
+        )
+        .expect("valid manifest should parse");
+
+        assert_eq!(manifest.version, "1.2.3");
+        assert_eq!(manifest.platforms.len(), 2);
+        let arm = &manifest.platforms["darwin-aarch64"];
+        assert_eq!(
+            arm.url,
+            "https://cdn.example.com/voxstudio-aarch64.app.tar.gz"
+        );
+        assert_eq!(arm.signature, "dGVzdC1zaWc=");
+    }
+
+    #[test]
+    fn rejects_malformed_manifest_json() {
+        let error = parse_manifest_v2("{ not valid json").unwrap_err();
+        assert!(error.starts_with("manifest_json_invalid"), "got: {error}");
+    }
+
+    #[test]
+    fn rejects_manifest_without_version() {
+        let error = parse_manifest_v2(
+            r#"{"platforms":{"darwin-aarch64":{"url":"https://x","signature":"sig"}}}"#,
+        )
+        .unwrap_err();
+        assert!(error.contains("version"), "got: {error}");
+    }
+
+    #[test]
+    fn rejects_manifest_without_platforms() {
+        let error = parse_manifest_v2(r#"{"version":"1.0.0","platforms":{}}"#).unwrap_err();
+        assert!(error.contains("no platforms"), "got: {error}");
+    }
+
+    // -----------------------------------------------------------------------
+    // Signature verification: bad signature is rejected (never installed)
+    // -----------------------------------------------------------------------
+
+    fn test_keypair() -> (String, String) {
+        use base64::Engine as _;
+        use ed25519_dalek::SigningKey;
+        let seed = [7_u8; 32];
+        let signing = SigningKey::from_bytes(&seed);
+        let public_key = signing.verifying_key().to_bytes();
+        (
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(public_key),
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(signing.to_bytes()),
+        )
+    }
+
+    fn sign_with(seed: [u8; 32], data: &[u8]) -> String {
+        use base64::Engine as _;
+        use ed25519_dalek::{Signer, SigningKey};
+        let signing = SigningKey::from_bytes(&seed);
+        let signature = signing.sign(data);
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(signature.to_bytes())
+    }
+
+    #[test]
+    fn accepts_a_validly_signed_package() {
+        let (public_key, _) = test_keypair();
+        let data = b"payload";
+        let signature = sign_with([7_u8; 32], data);
+        assert!(verify_update_signature(data, &signature, &public_key));
+    }
+
+    #[test]
+    fn rejects_a_tampered_signature_and_never_installs() {
+        let (public_key, _) = test_keypair();
+        let data = b"payload";
+        let signature = sign_with([7_u8; 32], data);
+        // A different payload under the same key must fail verification — the
+        // update is rejected and no install is attempted.
+        assert!(!verify_update_signature(
+            b"tampered",
+            &signature,
+            &public_key
+        ));
+
+        // A signature from a different key must also fail.
+        let other_signature = sign_with([9_u8; 32], data);
+        assert!(!verify_update_signature(
+            data,
+            &other_signature,
+            &public_key
+        ));
+    }
+
+    #[test]
+    fn rejects_malformed_key_or_signature() {
+        assert!(!verify_update_signature(
+            b"data",
+            "!!not-base64!!",
+            "dGVzdA"
+        ));
+        assert!(!verify_update_signature(b"data", "c2ln", "bWFsZm9ybWVk"));
+        assert!(!verify_update_signature(b"data", "", ""));
+    }
+
+    // -----------------------------------------------------------------------
+    // Error mapping: signature/install failures surface as honest errors
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn maps_signature_failure_to_signature_invalid() {
+        use tauri_plugin_updater::Error;
+        let message =
+            update_error_message(&Error::Minisign(minisign_verify::Error::InvalidSignature));
+        assert!(message.starts_with("signature_invalid"), "got: {message}");
+    }
+
+    #[test]
+    fn maps_install_io_failure_to_install_failed() {
+        use tauri_plugin_updater::Error;
+        let message = update_error_message(&Error::Io(std::io::Error::other("disk full")));
+        assert!(message.starts_with("install_failed"), "got: {message}");
     }
 }

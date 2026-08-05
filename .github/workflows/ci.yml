@@ -280,6 +280,10 @@ jobs:
     env:
       SIGNING_CERT: ${{ secrets.SIGNING_CERT }}
       SIGNING_IDENTITY: ${{ secrets.SIGNING_IDENTITY }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      APPLE_NOTARY_API_KEY: ${{ secrets.APPLE_NOTARY_API_KEY }}
+      APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+      APPLE_NOTARY_ISSUER: ${{ secrets.APPLE_NOTARY_ISSUER }}
     steps:
       - uses: actions/checkout@v4
 
@@ -312,19 +316,32 @@ jobs:
       - name: Set up Rust (stable)
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Build universal desktop bundle
-        run: scripts/build-universal.sh
+      - name: Build universal desktop bundle (signed when identity present)
+        run: |
+          if [[ -n "${SIGNING_IDENTITY}" ]]; then
+            VOXSTUDIO_SIGNING_IDENTITY="${SIGNING_IDENTITY}" scripts/build-universal.sh
+          else
+            scripts/build-universal.sh
+          fi
         timeout-minutes: 30
 
-      - name: Generate artifact provenance
+      # Real signing / notarization verification. This runs the actual tools:
+      # codesign --verify --deep --strict + spctl --assess on the app, and —
+      # only when notary credentials are present — xcrun notarytool submit
+      # (--wait) + xcrun stapler staple/validate on the DMG. The result JSON is
+      # the single honest source of sign_status for the provenance generator.
+      - name: Verify signing / notarization with real tools
         run: |
-          if [[ -n "${SIGNING_IDENTITY}" && -n "${SIGNING_CERT}" ]]; then
-            SIGNED=1 NOTARIZED=1 scripts/release-provenance.sh --output-dir output
-          elif [[ -n "${SIGNING_IDENTITY}" ]]; then
-            SIGNED=1 scripts/release-provenance.sh --output-dir output
-          else
-            SIGNED=0 scripts/release-provenance.sh --output-dir output
-          fi
+          mkdir -p output
+          chmod +x scripts/verify-release.sh
+          scripts/verify-release.sh --output-dir output
+        timeout-minutes: 15
+
+      - name: Generate artifact provenance (honest sign_status)
+        run: |
+          chmod +x scripts/release-provenance.sh
+          scripts/release-provenance.sh --output-dir output --verify-json output/verify.json
+        timeout-minutes: 5
 
       - name: Upload release artifacts
         uses: actions/upload-artifact@v4
@@ -333,23 +350,30 @@ jobs:
           path: |
             output/SHA256SUMS
             output/provenance.json
+            output/verify.json
             output/VoxStudio-universal.dmg
             apps/desktop/src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
           if-no-files-found: error
 
-      # Actual publishing is gated on explicit signing credentials. This step
-      # intentionally does NOT call a live release endpoint; wire in the real
-      # distribution (e.g. gh release / notarized DMG upload) here once
-      # SIGNING_CERT and SIGNING_IDENTITY are provisioned.
-      - name: Publish signed release (gated on signing credentials)
+      # The gate only reports PASSED when the real verification succeeded. When
+      # signing credentials are present this is the only path that marks the
+      # release green; any codesign/spctl/notarytool/stapler failure fails the
+      # gate. Actual publishing to a live endpoint is out of scope here — wire
+      # it in behind this same gate once credentials are provisioned.
+      - name: Release gate PASSED (verification succeeded)
         if: ${{ env.SIGNING_CERT != '' && env.SIGNING_IDENTITY != '' }}
         run: |
-          echo "Release publish is gated on SIGNING_CERT + SIGNING_IDENTITY."
-          echo "Credentials present; configure the live distribution upload here."
+          status="$(python3 -c 'import json;print(json.load(open("output/verify.json"))["status"])')"
+          if [[ "${status}" != "notarized" && "${status}" != "signed" ]]; then
+            echo "::error::RELEASE GATE FAILED — verification status was '${status}'; signing/notarization checks did not all pass."
+            exit 1
+          fi
+          echo "RELEASE GATE PASSED (${status})"
+          echo "sign_status=${status}" >> "${GITHUB_OUTPUT}"
 
-      # No signing credentials -> artifacts are built and provenanced but were
-      # NOT published to a live endpoint. We never claim a release.
-      - name: Emit UNVERIFIED release marker
+      # No signing credentials -> artifacts are built and provenanced but the
+      # release was NOT verified and NOT published to a live endpoint.
+      - name: Emit UNVERIFIED release marker (no signing credentials)
         if: ${{ env.SIGNING_CERT == '' || env.SIGNING_IDENTITY == '' }}
         run: |
-          echo "::warning::RELEASE GATE UNVERIFIED — SIGNING_CERT / SIGNING_IDENTITY not set; artifacts built and provenance generated, but the release was NOT published to a live endpoint."
+          echo "::warning::RELEASE GATE UNVERIFIED — SIGNING_CERT / SIGNING_IDENTITY not set; artifacts built and provenance generated, but signing/notarization was NOT verified and the release was NOT published to a live endpoint."

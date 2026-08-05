@@ -43,10 +43,8 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "REPLACE_ME_WITH_PRODUCTION_ED25519_PUBKEY",
-      "endpoints": [
-        "https://updates.example.com/{{target}}/{{arch}}/{{current_version}}"
-      ]
+      "pubkey": "VOXSTUDIO_DEVEL_PLACEHOLDER_INJECT_PRODUCTION_VIA_VOXSTUDIO_UPDATE_PUBKEY",
+      "endpoints": []
     }
   }
 }

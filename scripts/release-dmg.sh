@@ -75,6 +75,12 @@ xcrun stapler validate "${dmg}"
 printf 'Signed and notarized DMG: %s\n' "${dmg}"
 
 printf '%s\n' '-- Artifact provenance --'
-# Every release run produces checksums. This flow signs and notarizes, so the
-# provenance is recorded as signed+notarized (not fabricated).
-SIGNED=1 NOTARIZED=1 scripts/release-provenance.sh --output-dir "${project_root}/output"
+# Every release run produces checksums. The sign/notarize status is taken from
+# REAL tool verification (verify-release.sh re-checks codesign/spctl/notarytool/
+# stapler on the artifacts we just built/notarized), never from the presence of
+# credentials. Its JSON result is injected into the provenance generator so the
+# recorded status matches what the tools actually reported.
+verify_js="$(mktemp "${TMPDIR:-/tmp}/voxstudio-verify.XXXXXX.json")"
+trap 'rm -f "${verify_js}"' EXIT
+scripts/verify-release.sh --app "${app}" --dmg "${dmg}" --output-dir "${project_root}/output" > "${verify_js}"
+scripts/release-provenance.sh --output-dir "${project_root}/output" --verify-json "${verify_js}"
