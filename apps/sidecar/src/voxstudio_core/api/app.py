@@ -23,6 +23,7 @@ from voxstudio_core.api.routes.knowledge import create_knowledge_router
 from voxstudio_core.api.routes.memory import create_memory_router
 from voxstudio_core.api.routes.metrics import create_metrics_router
 from voxstudio_core.api.routes.privacy import create_privacy_router
+from voxstudio_core.api.routes.providers import create_providers_router
 from voxstudio_core.api.routes.readiness import (
     ReadinessLifecyclePort,
     ReadinessRunNotFoundError,
@@ -155,6 +156,7 @@ def create_app(
             oauth_factory=feishu_oauth_factory,
         )
     )
+    app.include_router(create_providers_router(guard=guard))
     if knowledge_sources is not None:
         app.include_router(
             create_knowledge_router(

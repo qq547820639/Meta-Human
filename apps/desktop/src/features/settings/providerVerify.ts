@@ -1,14 +1,17 @@
 import type { KnowledgeSource } from "../knowledge/knowledgeClient";
+import type { ProviderVerification } from "./settingsClient";
 
 /**
  * Provider/environment verification states.
  *
- * The sidecar backend does not expose a settings-verification endpoint, so the
- * only states that can be produced from real checks are: unconfigured,
+ * The sidecar backend now exposes a unified provider deep-verification endpoint
+ * (POST /v1/providers/verify) whose result can be mapped onto these states via
+ * `mapDeepVerification` (see below). The states produced by the shallow checks
+ * (verifyProvider / verifyProviderDetail / verifyFeishu) are: unconfigured,
  * verifying, verified, network_unreachable, and configured_unverified. The
  * remaining states (credential/permission/model/space/API-version failures)
- * are part of the contract so a future backend verify endpoint can populate
- * them, but the UI never fabricates them from shallow field checks.
+ * are populated from the deep verification result rather than fabricated from
+ * shallow field checks.
  */
 export type ProviderVerifyState =
   | "unconfigured"
@@ -220,9 +223,11 @@ export async function verifyFeishu(
 }
 
 /**
- * Maps the stepwise Feishu result to an overall verification state. Because the
- * backend cannot fully verify Feishu (no settings-verify endpoint), this never
- * returns "verified" — the honest ceiling is "configured_unverified".
+ * Maps the stepwise Feishu result to an overall verification state. This is the
+ * shallow path. For richer, per-step results the panel can also call the
+ * unified deep-verification endpoint and map it with `mapDeepVerification`.
+ * Because the shallow path cannot fully verify Feishu, it never returns
+ * "verified" — the honest ceiling is "configured_unverified".
  */
 export function feishuStepsToState(
   steps: FeishuVerifyStep[],
@@ -231,6 +236,42 @@ export function feishuStepsToState(
   if (appId?.status === "fail") return "unconfigured";
   const docList = steps.find((step) => step.id === "doc_list");
   if (docList?.status === "fail") return "network_unreachable";
+  return "configured_unverified";
+}
+
+/**
+ * Maps a unified provider deep-verification result to a `ProviderVerifyState`.
+ *
+ * Direct status mappings: "ok" → "verified", "unconfigured" → "unconfigured".
+ * For "failed" the state is derived from the structured fields:
+ *  - auth failure (invalid_credentials / not_configured) → "invalid_credentials"
+ *  - permission failure (insufficient_permission)       → "insufficient_permission"
+ *  - model not found (model_exists === false)            → "model_not_found"
+ *  - network unreachable (network_reachable === false or current_step "connection")
+ *                                                        → "network_unreachable"
+ *  - otherwise                                           → "configured_unverified"
+ */
+export function mapDeepVerification(
+  verification: ProviderVerification,
+): ProviderVerifyState {
+  if (verification.status === "ok") return "verified";
+  if (verification.status === "unconfigured") return "unconfigured";
+  if (
+    verification.auth_status === "invalid_credentials" ||
+    verification.auth_status === "not_configured"
+  ) {
+    return "invalid_credentials";
+  }
+  if (verification.permission_status === "insufficient_permission") {
+    return "insufficient_permission";
+  }
+  if (verification.model_exists === false) return "model_not_found";
+  if (
+    verification.network_reachable === false ||
+    verification.current_step === "connection"
+  ) {
+    return "network_unreachable";
+  }
   return "configured_unverified";
 }
 

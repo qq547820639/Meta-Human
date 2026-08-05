@@ -12,11 +12,13 @@ import {
   exchangeFeishuCode,
   openFeishuAuthorization,
   startFeishuOauth,
+  verifyProviderDeep,
 } from "./settingsClient";
-import type { AppSettings, SecretKind, SecretFlags } from "./settingsClient";
+import type { AppSettings, SecretKind, SecretFlags, ProviderVerification } from "./settingsClient";
 import { listKnowledgeSources } from "../knowledge/knowledgeClient";
 import type { KnowledgeSource } from "../knowledge/knowledgeClient";
 import { asText } from "./settingsText";
+import DeepVerificationCard from "./DeepVerificationCard";
 
 const feishuRedirectUri = "http://127.0.0.1:1420/oauth/feishu";
 
@@ -119,6 +121,8 @@ export default function FeishuKnowledgePanel({
   const [oauthStatus, setOauthStatus] = useState<string | null>(null);
   const [verifySteps, setVerifySteps] = useState<FeishuVerifyStep[]>([]);
   const [verifying, setVerifying] = useState(false);
+  const [deepVerification, setDeepVerification] =
+    useState<ProviderVerification | null>(null);
 
   async function handleOpenAuthorization() {
     const appId = settings.feishuAppId?.trim();
@@ -184,6 +188,7 @@ export default function FeishuKnowledgePanel({
   async function handleVerify() {
     setVerifying(true);
     setVerifySteps([]);
+    setDeepVerification(null);
     try {
       const steps = await verifyFeishu({
         appId: settings.feishuAppId ?? "",
@@ -195,6 +200,20 @@ export default function FeishuKnowledgePanel({
         listSources: listKnowledgeSources,
       });
       setVerifySteps(steps);
+      try {
+        const verification = await verifyProviderDeep("feishu", {
+          app_id: settings.feishuAppId?.trim() || undefined,
+          app_secret: feishuAppSecret.trim() || undefined,
+          access_token: feishuAccessToken.trim() || undefined,
+          refresh_token: feishuRefreshToken.trim() || undefined,
+          space_id: settings.feishuSpaceId?.trim() || undefined,
+          endpoint: settings.feishuBaseUrl?.trim() || undefined,
+          timeout_seconds: settings.localTimeoutSeconds ?? undefined,
+        });
+        setDeepVerification(verification);
+      } catch {
+        // The shallow stepwise result above remains the source of truth.
+      }
     } finally {
       setVerifying(false);
     }
@@ -297,6 +316,9 @@ export default function FeishuKnowledgePanel({
             </li>
           ))}
         </ul>
+      ) : null}
+      {deepVerification ? (
+        <DeepVerificationCard verification={deepVerification} />
       ) : null}
 
       <p>知识来源</p>

@@ -5,12 +5,14 @@ import {
   checkLocalProvider,
   checkRemoteProvider,
   exchangeFeishuCode,
+  listProviderTypes,
   loadAppSettings,
   openFeishuAuthorization,
   resetAllSettings,
   restartSidecar,
   saveAppSettings,
   startFeishuOauth,
+  verifyProviderDeep,
 } from "./settingsClient";
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -159,5 +161,125 @@ describe("settingsClient", () => {
     expect(invoke).toHaveBeenCalledWith("start_feishu_oauth", {
       appId: "cli_app",
     });
+  });
+
+  it("deep-verifies a provider through the unified API client", async () => {
+    vi.mocked(invoke).mockResolvedValue({
+      baseUrl: "http://127.0.0.1:43123",
+      bearerToken: "startup-token",
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            provider_type: "ollama",
+            status: "failed",
+            current_step: "auth",
+            endpoint: "http://127.0.0.1:11434",
+            network_reachable: true,
+            tls_status: "not_applicable",
+            auth_status: "invalid_credentials",
+            permission_status: "not_applicable",
+            api_version_compatible: null,
+            model_exists: null,
+            model_capabilities: [],
+            first_response_latency_ms: null,
+            total_duration_ms: 12,
+            recoverable: true,
+            recommended_action: "检查 API Key",
+            error_trace_id: null,
+            steps: [
+              { id: "auth", label: "鉴权", status: "fail", detail: "凭证无效" },
+            ],
+            verified_at: "2026-08-03T00:00:00Z",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      ),
+    );
+
+    const result = await verifyProviderDeep("ollama", {
+      endpoint: "http://127.0.0.1:11434",
+      model: "llama3",
+      timeout_seconds: 30,
+    });
+
+    expect(result.status).toBe("failed");
+    expect(result.current_step).toBe("auth");
+    expect(result.steps[0].status).toBe("fail");
+    expect(fetch).toHaveBeenCalledWith(
+      "http://127.0.0.1:43123/v1/providers/verify",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          Authorization: "Bearer startup-token",
+        }),
+        body: JSON.stringify({
+          provider_type: "ollama",
+          endpoint: "http://127.0.0.1:11434",
+          model: "llama3",
+          timeout_seconds: 30,
+        }),
+      }),
+    );
+  });
+
+  it("throws an ApiError when the deep-verify endpoint fails", async () => {
+    vi.mocked(invoke).mockResolvedValue({
+      baseUrl: "http://127.0.0.1:43123",
+      bearerToken: "startup-token",
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            code: "provider_verify_failed",
+            message: "验证失败",
+            retryable: true,
+            request_id: "req-123",
+            recommended_action: "稍后重试",
+          }),
+          { status: 502, headers: { "Content-Type": "application/json" } },
+        ),
+      ),
+    );
+
+    await expect(
+      verifyProviderDeep("ollama", { endpoint: "http://127.0.0.1:11434" }),
+    ).rejects.toMatchObject({
+      name: "ApiError",
+      code: "provider_verify_failed",
+      retryable: true,
+      requestId: "req-123",
+    });
+  });
+
+  it("lists provider types through the unified API client", async () => {
+    vi.mocked(invoke).mockResolvedValue({
+      baseUrl: "http://127.0.0.1:43123",
+      bearerToken: "startup-token",
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockResolvedValue(
+        new Response(JSON.stringify({ providers: ["ollama", "feishu"] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+
+    await expect(listProviderTypes()).resolves.toEqual(["ollama", "feishu"]);
+    expect(fetch).toHaveBeenCalledWith(
+      "http://127.0.0.1:43123/v1/providers/types",
+      expect.objectContaining({
+        method: "GET",
+        headers: expect.objectContaining({
+          Authorization: "Bearer startup-token",
+        }),
+      }),
+    );
   });
 });

@@ -2,12 +2,40 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   feishuStepsToState,
+  mapDeepVerification,
   providerVerifyDetailStepLabel,
   providerVerifyLabels,
   verifyFeishu,
   verifyProvider,
   verifyProviderDetail,
 } from "./providerVerify";
+import type { ProviderVerification } from "./settingsClient";
+
+function baseVerification(
+  overrides: Partial<ProviderVerification>,
+): ProviderVerification {
+  return {
+    provider_type: "ollama",
+    status: "failed",
+    current_step: null,
+    endpoint: null,
+    network_reachable: null,
+    tls_status: null,
+    auth_status: null,
+    permission_status: null,
+    api_version_compatible: null,
+    model_exists: null,
+    model_capabilities: [],
+    first_response_latency_ms: null,
+    total_duration_ms: 0,
+    recoverable: null,
+    recommended_action: null,
+    error_trace_id: null,
+    steps: [],
+    verified_at: "2026-08-03T00:00:00Z",
+    ...overrides,
+  };
+}
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -146,5 +174,59 @@ describe("providerVerify", () => {
     expect(steps[0].status).toBe("fail");
     expect(steps[4].status).toBe("fail");
     expect(feishuStepsToState(steps)).toBe("unconfigured");
+  });
+});
+
+describe("mapDeepVerification", () => {
+  it("maps status ok to verified", () => {
+    expect(mapDeepVerification(baseVerification({ status: "ok" }))).toBe(
+      "verified",
+    );
+  });
+
+  it("maps status unconfigured to unconfigured", () => {
+    expect(
+      mapDeepVerification(baseVerification({ status: "unconfigured" })),
+    ).toBe("unconfigured");
+  });
+
+  it("maps an auth failure to invalid_credentials", () => {
+    expect(
+      mapDeepVerification(
+        baseVerification({ auth_status: "invalid_credentials" }),
+      ),
+    ).toBe("invalid_credentials");
+    expect(
+      mapDeepVerification(baseVerification({ auth_status: "not_configured" })),
+    ).toBe("invalid_credentials");
+  });
+
+  it("maps a permission failure to insufficient_permission", () => {
+    expect(
+      mapDeepVerification(
+        baseVerification({ permission_status: "insufficient_permission" }),
+      ),
+    ).toBe("insufficient_permission");
+  });
+
+  it("maps a missing model to model_not_found", () => {
+    expect(
+      mapDeepVerification(baseVerification({ model_exists: false })),
+    ).toBe("model_not_found");
+  });
+
+  it("maps an unreachable network to network_unreachable", () => {
+    expect(
+      mapDeepVerification(baseVerification({ network_reachable: false })),
+    ).toBe("network_unreachable");
+    expect(
+      mapDeepVerification(baseVerification({ current_step: "connection" })),
+    ).toBe("network_unreachable");
+  });
+
+  it("falls back to configured_unverified for an unresolved failed status", () => {
+    expect(mapDeepVerification(baseVerification({}))).toBe(
+      "configured_unverified",
+    );
   });
 });

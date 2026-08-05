@@ -379,6 +379,27 @@ pnpm --dir apps/desktop tauri dev
 
 ---
 
+## 统一 Provider 深度验证接口
+
+Sidecar 暴露 `POST /v1/providers/verify`（受 BearerToken 保护），对单个 provider 执行逐步深度验证，返回真实、可分类的结果，供设置页实时展示验证步骤、失败原因与可执行建议。支持 provider 类型：`ollama`、`lmstudio`、`remote_gpu`、`feishu`、`stt`、`tts`、`llm`（`GET /v1/providers/types` 返回全部类型）。
+
+请求体（snake_case JSON）：
+
+```json
+{
+  "provider_type": "ollama",
+  "endpoint": "http://127.0.0.1:11434",
+  "model": "qwen2.5:7b",
+  "api_key": null,
+  "space_id": null,
+  "timeout_seconds": 10
+}
+```
+
+按 `connection → tls → auth → permission → model → capability` 逐步执行，任一步失败即停止并保留已通过步骤。响应结构包含：`status`（`ok`/`failed`/`unconfigured`）、`current_step`、`network_reachable`、`tls_status`、`auth_status`、`permission_status`、`api_version_compatible`、`model_exists`、`model_capabilities`、`first_response_latency_ms`、`total_duration_ms`、`recoverable`、`recommended_action`、`error_trace_id`（复用请求链路 X-Request-ID）以及 `steps` 明细。
+
+**错误分类**：认证失败、权限不足、模型不存在、版本不兼容、服务限流会分别映射为不同错误与建议，不会被统一折叠为 `network_unreachable`。飞书验证发起真实凭据/权限/空间访问检查，不依赖本地同步记录。
+
 ## 当前验证状态（UNVERIFIED 声明）
 
 本迭代（正式发布闭环 + 自然对话）已完成代码、自动化测试与文档，但**产品仍未达到生产发布完成状态**。以下能力因缺少凭证 / 服务 / 硬件尚未真实验证，一律标注 **UNVERIFIED**，不声称通过：

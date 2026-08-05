@@ -6,9 +6,10 @@ import {
   providerVerifyDetailStepLabel,
   verifyProviderDetail,
 } from "./providerVerify";
-import { checkRemoteProvider } from "./settingsClient";
-import type { AppSettings, SecretKind } from "./settingsClient";
+import { checkRemoteProvider, verifyProviderDeep } from "./settingsClient";
+import type { AppSettings, SecretKind, ProviderVerification } from "./settingsClient";
 import { asText } from "./settingsText";
+import DeepVerificationCard from "./DeepVerificationCard";
 
 interface RemoteServicePanelProps {
   readonly settings: AppSettings;
@@ -29,9 +30,12 @@ export default function RemoteServicePanel({
 }: RemoteServicePanelProps) {
   const [checking, setChecking] = useState(false);
   const [detail, setDetail] = useState<ProviderVerifyDetail | null>(null);
+  const [deepVerification, setDeepVerification] =
+    useState<ProviderVerification | null>(null);
 
   async function handleCheck() {
     setChecking(true);
+    setDeepVerification(null);
     try {
       const result = await verifyProviderDetail(
         settings.remoteBaseUrl,
@@ -39,6 +43,16 @@ export default function RemoteServicePanel({
         "remote",
       );
       setDetail(result);
+      try {
+        const verification = await verifyProviderDeep("remote_gpu", {
+          endpoint: settings.remoteBaseUrl?.trim() || undefined,
+          api_key: remoteApiKey.trim() || undefined,
+          timeout_seconds: settings.localTimeoutSeconds ?? undefined,
+        });
+        setDeepVerification(verification);
+      } catch {
+        // The shallow check above already reported reachability; keep its result.
+      }
     } finally {
       setChecking(false);
     }
@@ -87,6 +101,9 @@ export default function RemoteServicePanel({
           </dl>
           {detail.detail ? <p>{detail.detail}</p> : null}
         </div>
+      ) : null}
+      {deepVerification ? (
+        <DeepVerificationCard verification={deepVerification} />
       ) : null}
       <label>
         API Key

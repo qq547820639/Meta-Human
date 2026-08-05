@@ -20,9 +20,11 @@ import {
 import {
   checkLocalProvider,
   openSystemPermissions,
+  verifyProviderDeep,
 } from "./settingsClient";
-import type { AppSettings } from "./settingsClient";
+import type { AppSettings, ProviderVerification } from "./settingsClient";
 import { asText } from "./settingsText";
+import DeepVerificationCard from "./DeepVerificationCard";
 
 interface LocalModelPanelProps {
   readonly settings: AppSettings;
@@ -52,6 +54,8 @@ export default function LocalModelPanel({
   const [checking, setChecking] = useState(false);
   const [checkError, setCheckError] = useState<TranslatedError | null>(null);
   const [checkSuccess, setCheckSuccess] = useState<string | null>(null);
+  const [deepVerification, setDeepVerification] =
+    useState<ProviderVerification | null>(null);
 
   const reachable =
     probes === null ? [] : probes.filter((probe) => probe.reachable);
@@ -96,6 +100,7 @@ export default function LocalModelPanel({
     setChecking(true);
     setCheckError(null);
     setCheckSuccess(null);
+    setDeepVerification(null);
     try {
       const url = settings.localBaseUrl?.trim();
       if (!url) {
@@ -114,6 +119,16 @@ export default function LocalModelPanel({
         );
       } else {
         setCheckSuccess("本地服务连接正常（验证成功）。");
+      }
+      try {
+        const verification = await verifyProviderDeep("ollama", {
+          endpoint: url,
+          model: asText(settings.localChatModel) || undefined,
+          timeout_seconds: settings.localTimeoutSeconds ?? undefined,
+        });
+        setDeepVerification(verification);
+      } catch {
+        // The shallow check above already reported reachability; keep its result.
       }
     } catch (raw) {
       setCheckError(
@@ -234,6 +249,10 @@ export default function LocalModelPanel({
       </button>
 
       {checkSuccess ? <p role="status">{checkSuccess}</p> : null}
+
+      {deepVerification ? (
+        <DeepVerificationCard verification={deepVerification} />
+      ) : null}
 
       {checkError ? (
         <div className="settings-error-card" role="note">

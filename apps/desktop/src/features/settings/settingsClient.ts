@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
-import { toApiError } from "../../api/client";
+import { apiRequest, toApiError } from "../../api/client";
 
 export interface AppSettings {
   readonly localBaseUrl?: string | null;
@@ -152,4 +152,101 @@ export function startFeishuOauth(
 /** Opens the operating-system privacy & permissions settings (best effort). */
 export function openSystemPermissions(): Promise<void> {
   return invoke<void>("open_system_permissions");
+}
+
+/** Provider types accepted by the unified provider deep-verification endpoint. */
+export type ProviderType =
+  | "ollama"
+  | "lmstudio"
+  | "remote_gpu"
+  | "feishu"
+  | "stt"
+  | "tts"
+  | "llm";
+
+/** A single step of a deep provider verification, as returned by the backend. */
+export interface ProviderVerifyStep {
+  readonly id: string;
+  readonly label: string;
+  readonly status: "pass" | "fail" | "skip";
+  readonly latency_ms?: number;
+  readonly detail?: string;
+}
+
+/**
+ * Result of the unified provider deep-verification endpoint
+ * (POST /v1/providers/verify). Optional/non-deterministic fields are null.
+ */
+export interface ProviderVerification {
+  readonly provider_type: string;
+  readonly status: "ok" | "failed" | "unconfigured";
+  readonly current_step: string | null;
+  readonly endpoint: string | null;
+  readonly network_reachable: boolean | null;
+  readonly tls_status:
+    | "ok"
+    | "insecure"
+    | "not_applicable"
+    | null;
+  readonly auth_status:
+    | "ok"
+    | "invalid_credentials"
+    | "not_configured"
+    | "not_applicable"
+    | null;
+  readonly permission_status:
+    | "ok"
+    | "insufficient_permission"
+    | "not_configured"
+    | "not_applicable"
+    | null;
+  readonly api_version_compatible: boolean | null;
+  readonly model_exists: boolean | null;
+  readonly model_capabilities: string[];
+  readonly first_response_latency_ms: number | null;
+  readonly total_duration_ms: number;
+  readonly recoverable: boolean | null;
+  readonly recommended_action: string | null;
+  readonly error_trace_id: string | null;
+  readonly steps: ProviderVerifyStep[];
+  readonly verified_at: string;
+}
+
+/** Request body for the provider deep-verification endpoint (snake_case). */
+export interface ProviderVerifyDeepInput {
+  readonly endpoint?: string;
+  readonly api_key?: string;
+  readonly model?: string;
+  readonly space_id?: string;
+  readonly app_id?: string;
+  readonly app_secret?: string;
+  readonly access_token?: string;
+  readonly refresh_token?: string;
+  readonly timeout_seconds?: number;
+}
+
+/**
+ * Runs the unified provider deep verification against the sidecar
+ * (POST /v1/providers/verify) and returns the typed result.
+ */
+export function verifyProviderDeep(
+  providerType: ProviderType,
+  input: ProviderVerifyDeepInput,
+  signal?: AbortSignal,
+): Promise<ProviderVerification> {
+  return apiRequest<ProviderVerification>({
+    method: "POST",
+    path: "/v1/providers/verify",
+    body: { provider_type: providerType, ...input },
+    signal,
+  });
+}
+
+/** Lists the provider types supported by the backend (GET /v1/providers/types). */
+export async function listProviderTypes(): Promise<string[]> {
+  const body = await apiRequest<{ providers: string[] }>({
+    method: "GET",
+    path: "/v1/providers/types",
+  });
+  return body.providers;
 }
