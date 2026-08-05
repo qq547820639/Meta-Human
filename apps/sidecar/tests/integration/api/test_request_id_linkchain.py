@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -159,7 +159,11 @@ async def test_request_id_does_not_leak_into_other_requests() -> None:
 async def test_request_id_is_propagated_into_nested_async_logs() -> None:
     # The contextvar autopropagates into child tasks created inside the request
     # context, so nested logs emitted by services share the same request_id.
-    from voxstudio_core.telemetry import current_request_id, reset_request_id, set_request_id
+    from voxstudio_core.telemetry import (
+        current_request_id,
+        reset_request_id,
+        set_request_id,
+    )
 
     token = set_request_id("nested-chain-request")
     try:

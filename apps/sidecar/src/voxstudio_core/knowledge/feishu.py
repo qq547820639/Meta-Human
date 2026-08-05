@@ -69,7 +69,8 @@ class FeishuClient:
                 headers=self._headers(),
             )
             body = self._json_or_error(response)
-            data = body.get("data") if isinstance(body.get("data"), dict) else {}
+            raw_data = body.get("data")
+            data = raw_data if isinstance(raw_data, dict) else {}
             items = data.get("items", [])
             nodes = tuple(
                 WikiNode(
@@ -125,7 +126,8 @@ class FeishuClient:
                 headers=self._headers(),
             )
             body = self._json_or_error(response)
-            data = body.get("data") if isinstance(body.get("data"), dict) else {}
+            raw_data = body.get("data")
+            data = raw_data if isinstance(raw_data, dict) else {}
             content = data.get("content")
             if not isinstance(content, str) or not content.strip():
                 raise FeishuApiError("docx raw content was empty")
@@ -153,7 +155,8 @@ class FeishuClient:
                 },
             )
             body = self._json_or_error(response)
-        data = body.get("data") if isinstance(body.get("data"), dict) else {}
+        raw_data = body.get("data")
+        data = raw_data if isinstance(raw_data, dict) else {}
         access_token = data.get("access_token")
         refresh_token = data.get("refresh_token")
         if not isinstance(access_token, str) or not access_token:

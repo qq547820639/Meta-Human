@@ -13,8 +13,8 @@ from voxstudio_core.knowledge.conversation import (
     TranscriptionUnavailableError,
 )
 from voxstudio_core.knowledge.history import ConversationHistoryStore
-from voxstudio_core.knowledge.memory import ConversationMemoryStore, MemoryService
 from voxstudio_core.knowledge.indexer import KnowledgeIndexer
+from voxstudio_core.knowledge.memory import ConversationMemoryStore, MemoryService
 from voxstudio_core.knowledge.retrieval import KnowledgeRetriever
 from voxstudio_core.persistence.conversation_repository import (
     ConversationRepository,
@@ -666,3 +666,85 @@ async def test_temporary_session_does_not_write_long_term_memory(
 
     assert await memory_store.load_latest() is None
     assert await memory_service.list_entries() == ()
+
+
+@pytest.mark.asyncio
+async def test_temporary_conversation_does_not_write_long_term_memory(
+    database: Database,
+) -> None:
+    """A conversation in "临时对话" mode must not write long-term memory."""
+    history = ConversationHistoryStore(database)
+    memory_store = ConversationMemoryStore(database)
+    memory_service = MemoryService(
+        repository=MemoryEntryRepository(database),
+        chat_model="local-chat",
+    )
+    conversations = ConversationRepository(database)
+    service = ConversationService(
+        retriever=KnowledgeRetriever(database),
+        chat_client=chat_client(
+            httpx.MockTransport(
+                lambda _: httpx.Response(
+                    200,
+                    json={"choices": [{"message": {"content": "回答"}}]},
+                )
+            )
+        ),
+        chat_model="local-chat",
+        history=history,
+        memory_store=memory_store,
+        memory_service=memory_service,
+        memory_summary_interval=1,
+        conversations=conversations,
+    )
+
+    conversation = await service.create_conversation(title="临时")
+    await service.set_temporary_conversation(
+        conversation.id, is_temporary=True
+    )
+
+    await service.reply(
+        query="请记住我喝美式", conversation_id=conversation.id
+    )
+
+    assert await memory_store.load_latest() is None
+    assert await memory_service.list_entries() == ()
+
+
+@pytest.mark.asyncio
+async def test_normal_conversation_writes_long_term_memory(
+    database: Database,
+) -> None:
+    """A non-temporary, active conversation writes long-term memory."""
+    history = ConversationHistoryStore(database)
+    memory_store = ConversationMemoryStore(database)
+    memory_service = MemoryService(
+        repository=MemoryEntryRepository(database),
+        chat_model="local-chat",
+    )
+    conversations = ConversationRepository(database)
+    service = ConversationService(
+        retriever=KnowledgeRetriever(database),
+        chat_client=chat_client(
+            httpx.MockTransport(
+                lambda _: httpx.Response(
+                    200,
+                    json={"choices": [{"message": {"content": "回答"}}]},
+                )
+            )
+        ),
+        chat_model="local-chat",
+        history=history,
+        memory_store=memory_store,
+        memory_service=memory_service,
+        memory_summary_interval=1,
+        conversations=conversations,
+    )
+
+    conversation = await service.create_conversation(title="正常")
+
+    await service.reply(
+        query="请记住我喝美式", conversation_id=conversation.id
+    )
+
+    assert await memory_store.load_latest() is not None

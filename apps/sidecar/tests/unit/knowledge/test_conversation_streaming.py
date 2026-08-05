@@ -65,7 +65,10 @@ def service(
 
 def sse_response(*chunks: str) -> httpx.Response:
     body = b"".join(
-        f'data: {{"choices":[{{"delta":{{"content":{json.dumps(chunk)}}}}}]}}\n\n'.encode()
+        (
+            f'data: {{"choices":[{{"delta":{{"content":'
+            f'{json.dumps(chunk)}}}}}]}}\n\n'
+        ).encode()
         for chunk in chunks
     )
     body += b"data: [DONE]\n\n"

@@ -1,7 +1,7 @@
-from dataclasses import dataclass
 import re
 import sqlite3
 import unicodedata
+from dataclasses import dataclass
 
 from voxstudio_core.persistence.database import Database
 
@@ -131,7 +131,7 @@ def _terms(value: str) -> set[str]:
     cjk_terms = set(han_chars)
     cjk_terms.update(
         left + right
-        for left, right in zip(han_chars, han_chars[1:])
+        for left, right in zip(han_chars, han_chars[1:], strict=False)
     )
     return latin_terms | cjk_terms
 

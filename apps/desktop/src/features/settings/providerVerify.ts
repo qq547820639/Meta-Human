@@ -58,6 +58,75 @@ export async function verifyProvider(
   }
 }
 
+export interface ProviderVerifyDetail {
+  readonly state: ProviderVerifyState;
+  readonly url: string;
+  readonly providerType: "local" | "remote";
+  readonly latencyMs: number;
+  /** The exact step that was checked/failed: "ok", "connection", "unconfigured". */
+  readonly step: string;
+  readonly detail?: string;
+}
+
+/**
+ * Like verifyProvider but returns a structured result carrying the actual
+ * connection target, provider type, measured latency and the failing step so
+ * the UI can show exactly what was checked. Never claims success unless the
+ * underlying check returned true.
+ */
+export async function verifyProviderDetail(
+  url: string | null | undefined,
+  check: ProviderCheck,
+  providerType: "local" | "remote",
+): Promise<ProviderVerifyDetail> {
+  const trimmed = url?.trim();
+  if (!trimmed) {
+    return {
+      state: "unconfigured",
+      url: "",
+      providerType,
+      latencyMs: 0,
+      step: "unconfigured",
+      detail: "未填写服务地址。",
+    };
+  }
+  const startedAt = performance.now();
+  let reachable: boolean;
+  try {
+    reachable = await check(trimmed);
+  } catch {
+    reachable = false;
+  }
+  const latencyMs = performance.now() - startedAt;
+  if (reachable) {
+    return { state: "verified", url: trimmed, providerType, latencyMs, step: "ok" };
+  }
+  return {
+    state: "network_unreachable",
+    url: trimmed,
+    providerType,
+    latencyMs,
+    step: "connection",
+    detail: "无法连接到服务地址，请检查网络、服务是否运行以及地址是否正确。",
+  };
+}
+
+/**
+ * Human-readable label for the failed/checked step of a provider verification.
+ */
+export function providerVerifyDetailStepLabel(step: string): string {
+  switch (step) {
+    case "ok":
+      return "全部检查通过";
+    case "connection":
+      return "连接服务";
+    case "unconfigured":
+      return "未配置地址";
+    default:
+      return step;
+  }
+}
+
 export type FeishuVerifyStepStatus =
   | "pass"
   | "fail"

@@ -17,6 +17,27 @@ tracks changes since the last tagged release.
 - 发布体验：可导出的诊断报告（应用版本、更新通道、构建提交、Sidecar 状态、
   配置摘要），不包含任何密钥/令牌。
 - 隐私与数据：在「隐私与数据」面板补充 provider 数据发送范围与数据删除说明。
+- **真实更新闭环**：正式接入 `tauri-plugin-updater`，前端更新流程改为驱动真实
+  `update_check` / `update_download` / `update_install` 命令；stable/beta 双端点由
+  环境变量注入；未配置端点/签名公钥时如实显示「未配置」，发布验收保持 `UNVERIFIED`。
+- **CI 质量门禁**：将 `ruff` 与 `mypy` 正式配置为 CI 硬性门禁（`pyproject.toml`
+  `[tool.ruff]` / `[tool.mypy]`），修复后端全部 ruff/mypy 违规。
+- **发布产物溯源**：新增 `scripts/release-provenance.sh`，产出 `SHA256SUMS` 与
+  `provenance.json`（版本、commit SHA、构建时间、各产物 sha256、签名/公证状态）；
+  `release-gate` 从空操作改为真实构建 + 溯源 + 上传，发布到真实端点受签名凭证门禁，
+  缺失时打印 `UNVERIFIED`。
+- **健康检查结构校验**：`capabilities` 适配器校验 HTTP 状态码、Content-Type、JSON
+  结构与关键字段；HTML 页、代理返回页、空响应、错误 JSON 一律判失败并给中文可执行
+  提示；分阶段超时、取消信号、仅幂等操作自动重试；新增
+  `test_readiness_structure_contract.py` 契约测试。
+- **自然对话深化**：流式 LLM→TTS 按句子/稳定语义片段切分下发（`replyChunker.ts`）；
+  播报期间回声门（`echoGate.ts`）优先信任系统 AEC、无 AEC 时抑制短突发回声，但
+  用户持续插话仍可打断，绝不永久禁用插话。
+- **知识/记忆体验**：记忆条目「查看来源」、删除/清空的确认对话框、删除会话时说明
+  派生记忆是否被删除；「临时对话」模式（`is_temporary`，不写长期记忆）；敏感信息
+  记忆写入规则可配置。
+- **隐私与 UX**：跟随系统深色/浅色模式（`useTheme.ts` / `themes.css`）；错误提示统一
+  「发生了什么 / 可能原因 / 下一步操作」结构；破坏性操作二次确认。
 
 ## [0.1.0] - 2026-08-05
 

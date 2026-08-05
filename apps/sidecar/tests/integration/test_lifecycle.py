@@ -2,7 +2,6 @@ import asyncio
 import logging
 import os
 import socket
-from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -36,7 +35,6 @@ from voxstudio_core.readiness.models import (
     CapabilityState,
 )
 from voxstudio_core.readiness.service import ReadinessService
-
 
 NOW = datetime(2026, 8, 1, 10, 0, tzinfo=UTC)
 
@@ -411,7 +409,7 @@ async def test_startup_migrates_sqlite_and_restores_latest_incomplete_run(
     restored = await lifecycle.current_run()
 
     assert await database.applied_migration_versions() == (
-        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15
+        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16
     )
     assert restored is not None
     assert restored.id == "interrupted-run"

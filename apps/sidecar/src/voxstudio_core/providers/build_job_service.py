@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -10,8 +11,6 @@ from typing import Protocol
 
 from voxstudio_core.persistence.build_job_repository import (
     BuildJob,
-    BuildJobConflictError,
-    BuildJobNotFoundError,
     BuildJobRepository,
     BuildJobStatus,
     BuildStage,
@@ -231,7 +230,7 @@ class BuildJobService:
             self._tasks[job.id] = task
             task.add_done_callback(self._consume(job.id))
 
-    def _consume(self, job_id: str) -> None:
+    def _consume(self, job_id: str) -> Callable[[asyncio.Task[None]], None]:
         def _done(task: asyncio.Task[None]) -> None:
             if task.cancelled():
                 return
@@ -270,7 +269,12 @@ class BuildJobService:
             if BuildStage.ENROLL_VOICE not in succeeded:
                 await self._check_cancelled(job, BuildStage.ENROLL_VOICE)
                 audio = _read_media(
-                    Path(job.recording_path), self._max_recording_bytes
+                    _require_media_path(
+                        job,
+                        BuildStage.ENROLL_VOICE,
+                        kind="recording",
+                    ),
+                    self._max_recording_bytes,
                 )
                 voice_id = await self._client.enroll_voice(audio=audio)
                 succeeded.add(BuildStage.ENROLL_VOICE)
@@ -281,7 +285,12 @@ class BuildJobService:
             if BuildStage.ENROLL_AVATAR not in succeeded:
                 await self._check_cancelled(job, BuildStage.ENROLL_AVATAR)
                 image = _read_media(
-                    Path(job.portrait_path), self._max_portrait_bytes
+                    _require_media_path(
+                        job,
+                        BuildStage.ENROLL_AVATAR,
+                        kind="portrait",
+                    ),
+                    self._max_portrait_bytes,
                 )
                 avatar_id = await self._client.enroll_avatar(image=image)
                 succeeded.add(BuildStage.ENROLL_AVATAR)
@@ -335,9 +344,13 @@ class BuildJobService:
         await self._check_cancelled(job, stage)
         if stage is BuildStage.VALIDATE_INPUTS:
             _read_media(
-                Path(job.recording_path), self._max_recording_bytes
+                _require_media_path(job, stage, kind="recording"),
+                self._max_recording_bytes,
             )
-            _read_media(Path(job.portrait_path), self._max_portrait_bytes)
+            _read_media(
+                _require_media_path(job, stage, kind="portrait"),
+                self._max_portrait_bytes,
+            )
 
     async def _check_cancelled(self, job: BuildJob, stage: BuildStage) -> None:
         current = await self._repository.get(job.id)
@@ -537,6 +550,17 @@ class BuildJobService:
             if human.avatar_id:
                 result.append(human.avatar_id)
         return tuple(result)
+
+
+def _require_media_path(job: BuildJob, stage: BuildStage, *, kind: str) -> Path:
+    path = job.recording_path if kind == "recording" else job.portrait_path
+    if path is None:
+        raise _StageFailure(
+            stage,
+            "build_internal_error",
+            f"{kind} media path is missing for {stage}",
+        )
+    return Path(path)
 
 
 def _read_media(path: Path, max_bytes: int) -> bytes:

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from enum import Enum
+from enum import Enum, StrEnum
 
 from voxstudio_core.persistence.database import Database
 
@@ -18,7 +18,7 @@ from voxstudio_core.persistence.database import Database
 DEFAULT_STALE_AFTER_DAYS = 7
 
 
-class SyncStatus(str, Enum):
+class SyncStatus(StrEnum):
     PENDING = "pending"
     SYNCING = "syncing"
     READY = "ready"

@@ -1,7 +1,7 @@
 import hashlib
 import hmac
 from collections.abc import Iterable
-from typing import NoReturn
+from typing import NoReturn, SupportsIndex
 
 from fastapi import HTTPException, Request, status
 from pydantic import SecretStr
@@ -53,7 +53,7 @@ class BearerTokenGuard:
     def __repr__(self) -> str:
         return f"{type(self).__name__}()"
 
-    def __reduce_ex__(self, protocol: int) -> NoReturn:
+    def __reduce_ex__(self, protocol: SupportsIndex) -> NoReturn:
         del protocol
         raise TypeError("BearerTokenGuard secrets must not be serialized")
 

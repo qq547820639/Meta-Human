@@ -15,7 +15,6 @@ from voxstudio_core.readiness.models import (
     CapabilityState,
 )
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -184,7 +183,7 @@ class SidecarLifecycle:
                 resumed_at=self._clock()
             )
             if resumed is None:
-                raise RuntimeError("readiness recovery found no current run")
+                raise RuntimeError("readiness recovery found no current run") from None
             return resumed
         finally:
             async with self._lock:

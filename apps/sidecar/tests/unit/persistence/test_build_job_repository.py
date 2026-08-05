@@ -83,7 +83,7 @@ async def test_latest_for_digital_human_returns_most_recent(repository) -> None:
     _, store, humans = repository
     human_id = await _make_human(humans, "Bob")
     other_id = await _make_human(humans, "Alice")
-    first = await store.create(
+    await store.create(
         portrait_path="/a.jpg",
         recording_path="/a.wav",
         digital_human_id=human_id,
@@ -176,5 +176,7 @@ async def test_list_for_digital_human_paginates_51_plus_without_duplicates(
         offset += len(page)
 
     assert len(collected) == 55
-    assert collected == expected, "pages must concatenate into the full, ordered history"
+    assert collected == expected, (
+        "pages must concatenate into the full, ordered history"
+    )
     assert len(set(collected)) == 55, "pages must not overlap (no duplicates)"

@@ -8,10 +8,8 @@ from voxstudio_core.knowledge.memory_rules import (
 from voxstudio_core.persistence.database import Database
 from voxstudio_core.persistence.memory_entry_repository import (
     MEMORY_SCOPE_GLOBAL,
-    MEMORY_SOURCE_SYSTEM,
     MemoryEntry,
     MemoryEntryRepository,
-    MemoryEntryNotFoundError,
     MemoryIgnoreRuleRepository,
 )
 

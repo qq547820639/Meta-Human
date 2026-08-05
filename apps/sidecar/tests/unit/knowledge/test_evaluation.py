@@ -5,8 +5,8 @@ import pytest
 import pytest_asyncio
 
 from voxstudio_core.knowledge.evaluation import (
-    EvaluationCase,
     SAMPLE_TEST_SET,
+    EvaluationCase,
     build_sample_database,
     report_to_json,
     report_to_markdown,

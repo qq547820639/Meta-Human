@@ -129,6 +129,26 @@ async def test_archive_flips_flag(repository) -> None:
 
 
 @pytest.mark.asyncio
+async def test_new_conversation_is_not_temporary(repository) -> None:
+    _, store = repository
+    conversation = await store.create(title="A")
+    assert conversation.is_temporary is False
+
+
+@pytest.mark.asyncio
+async def test_set_temporary_flips_flag(repository) -> None:
+    _, store = repository
+    conversation = await store.create(title="A")
+
+    temporary = await store.set_temporary(conversation.id, is_temporary=True)
+    assert temporary.is_temporary is True
+    assert (await store.get(conversation.id)).is_temporary is True
+
+    restored = await store.set_temporary(conversation.id, is_temporary=False)
+    assert restored.is_temporary is False
+
+
+@pytest.mark.asyncio
 async def test_clear_removes_messages_and_resets_last_message(repository) -> None:
     database, store = repository
     conversation = await store.create(title="A")
@@ -146,7 +166,8 @@ async def test_clear_removes_messages_and_resets_last_message(repository) -> Non
     assert reloaded.last_message_at is None
     async with database.transaction(immediate=False) as connection:
         async with connection.execute(
-            "SELECT COUNT(*) AS total FROM conversation_messages WHERE conversation_id = ?",
+            "SELECT COUNT(*) AS total FROM conversation_messages "
+            "WHERE conversation_id = ?",
             (conversation.id,),
         ) as cursor:
             row = await cursor.fetchone()

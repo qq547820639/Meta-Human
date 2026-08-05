@@ -8,31 +8,34 @@ from typing import Protocol
 
 from voxstudio_core.capabilities.base import (
     CapabilityActionRequired,
+    CapabilityAdapter,
     CapabilityCheckOutcome,
     CapabilityCheckRequest,
     CapabilityReady,
     CapabilityTransientFailure,
 )
+from voxstudio_core.capabilities.registry import CapabilityAdapterRegistry
 from voxstudio_core.metrics import (
     OUTCOME_CANCELLED,
     OUTCOME_DEGRADED,
     OUTCOME_ERROR,
     OUTCOME_SUCCESS,
     ProviderMetricsRegistry,
+)
+from voxstudio_core.metrics import (
     registry as default_metrics_registry,
 )
-from voxstudio_core.capabilities.registry import CapabilityAdapterRegistry
 from voxstudio_core.persistence.readiness_repository import (
     CapabilityUpdate,
     PersistedReadinessRun,
     SafeError,
 )
 from voxstudio_core.readiness.models import (
+    REQUIRED_CAPABILITY_IDS,
     AggregateState,
     CapabilityId,
     CapabilityReadiness,
     CapabilityState,
-    REQUIRED_CAPABILITY_IDS,
     aggregate_state,
 )
 

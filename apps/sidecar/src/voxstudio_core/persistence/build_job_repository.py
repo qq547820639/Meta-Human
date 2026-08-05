@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 from uuid import uuid4
 
 import aiosqlite
@@ -11,7 +11,7 @@ import aiosqlite
 from voxstudio_core.persistence.database import Database
 
 
-class BuildJobStatus(str, Enum):
+class BuildJobStatus(StrEnum):
     PENDING = "pending"
     RUNNING = "running"
     SUCCEEDED = "succeeded"
@@ -22,7 +22,7 @@ class BuildJobStatus(str, Enum):
     CLEANUP_FAILED = "cleanup_failed"
 
 
-class BuildStage(str, Enum):
+class BuildStage(StrEnum):
     VALIDATE_INPUTS = "validate_inputs"
     ENROLL_VOICE = "enroll_voice"
     ENROLL_AVATAR = "enroll_avatar"
@@ -30,7 +30,7 @@ class BuildStage(str, Enum):
     CLEANUP = "cleanup"
 
 
-class CleanupState(str, Enum):
+class CleanupState(StrEnum):
     """Lifecycle of a build job's remote-resource cleanup.
 
     ``NONE`` means no remote resources were created (or cleanup was never
@@ -126,7 +126,8 @@ class BuildJobRepository:
                     portrait_path, recording_path, created_at, updated_at,
                     completed_at, mode, staging_voice_id, staging_avatar_id,
                     provider, cleanup_state
-                ) VALUES (?, ?, ?, ?, ?, NULL, ?, 0, NULL, NULL, 0, ?, ?, ?, ?, NULL, ?, ?, ?, ?, 'none')
+                ) VALUES (?, ?, ?, ?, ?, NULL, ?, 0, NULL, NULL, 0, ?, ?, ?, ?, NULL,
+                ?, ?, ?, ?, 'none')
                 """,
                 (
                     resolved_id,

@@ -2,9 +2,9 @@ import { useState } from "react";
 
 import SettingsPanel from "./SettingsPanel";
 import {
-  ProviderVerifyState,
-  verifyProvider,
-  verifyStateMessage,
+  ProviderVerifyDetail,
+  providerVerifyDetailStepLabel,
+  verifyProviderDetail,
 } from "./providerVerify";
 import { checkRemoteProvider } from "./settingsClient";
 import type { AppSettings, SecretKind } from "./settingsClient";
@@ -28,13 +28,17 @@ export default function RemoteServicePanel({
   onClearSecret,
 }: RemoteServicePanelProps) {
   const [checking, setChecking] = useState(false);
-  const [state, setState] = useState<ProviderVerifyState | null>(null);
+  const [detail, setDetail] = useState<ProviderVerifyDetail | null>(null);
 
   async function handleCheck() {
-    setState("verifying");
     setChecking(true);
     try {
-      setState(await verifyProvider(settings.remoteBaseUrl, checkRemoteProvider));
+      const result = await verifyProviderDetail(
+        settings.remoteBaseUrl,
+        checkRemoteProvider,
+        "remote",
+      );
+      setDetail(result);
     } finally {
       setChecking(false);
     }
@@ -52,7 +56,38 @@ export default function RemoteServicePanel({
       <button type="button" onClick={() => void handleCheck()} disabled={checking}>
         {checking ? "检查中…" : "测试远程连接"}
       </button>
-      {state ? <p>{verifyStateMessage("远程", state)}</p> : null}
+      {detail ? (
+        <div
+          className="settings-verify-card"
+          data-testid="remote-verify-detail"
+          role={detail.state === "verified" ? "status" : "note"}
+        >
+          <p>
+            <strong>
+              {detail.state === "verified" ? "验证成功" : "验证未通过"}
+            </strong>
+          </p>
+          <dl className="settings-verify-fields">
+            <div>
+              <dt>连接地址</dt>
+              <dd>{detail.url || "未填写"}</dd>
+            </div>
+            <div>
+              <dt>Provider 类型</dt>
+              <dd>{detail.providerType === "remote" ? "远程服务" : "本地服务"}</dd>
+            </div>
+            <div>
+              <dt>响应耗时</dt>
+              <dd>{detail.step === "unconfigured" ? "—" : `${detail.latencyMs.toFixed(0)} ms`}</dd>
+            </div>
+            <div>
+              <dt>检查步骤</dt>
+              <dd>{providerVerifyDetailStepLabel(detail.step)}</dd>
+            </div>
+          </dl>
+          {detail.detail ? <p>{detail.detail}</p> : null}
+        </div>
+      ) : null}
       <label>
         API Key
         <input

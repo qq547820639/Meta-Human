@@ -2,21 +2,24 @@
 //! `tauri-plugin-updater`.
 //!
 //! The plugin is registered at startup (see `lib.rs`). This module drives it:
-//!   - `get_update_config`        : honestly reports whether the real updater is
-//!                                  actually usable (public key + endpoint present).
-//!   - `update_check`             : pings the channel endpoint via the plugin.
-//!   - `update_download`          : downloads + verifies the package, staging it.
-//!   - `update_install`           : installs the staged package.
+//!
+//! - `get_update_config` — honestly reports whether the real updater is
+//!   actually usable (public key + endpoint present).
+//! - `update_check` — pings the channel endpoint via the plugin.
+//! - `update_download` — downloads + verifies the package, staging it.
+//! - `update_install` — installs the staged package.
 //!
 //! Configuration is injected at build/runtime via environment variables so no
 //! secrets are compiled into the source tree. The signature public key used by
 //! the plugin is supplied through `VOXSTUDIO_UPDATE_PUBKEY` (base64 URL-safe raw
 //! Ed25519 public key) and injected into the plugin builder at registration;
 //! the per-channel update endpoints are resolved here at runtime:
-//!   - stable → `VOXSTUDIO_UPDATE_ENDPOINT_STABLE`
-//!   - beta   → `VOXSTUDIO_UPDATE_ENDPOINT`
-//! The `pubkey` in `tauri.conf.json` is a placeholder that must be replaced with
-//! the real production public key before shipping in-app updates.
+//!
+//! - stable → `VOXSTUDIO_UPDATE_ENDPOINT_STABLE`
+//! - beta → `VOXSTUDIO_UPDATE_ENDPOINT`
+//!
+//! The `pubkey` in `tauri.conf.json` is a placeholder that must be replaced
+//! with the real production public key before shipping in-app updates.
 
 use serde::Serialize;
 use std::sync::Mutex;
@@ -212,25 +215,19 @@ pub async fn update_install(
 
 fn update_error_message(error: &tauri_plugin_updater::Error) -> String {
     match error {
-        tauri_plugin_updater::Error::EmptyEndpoints => {
-            "not_configured: 更新端点未配置".to_string()
-        }
+        tauri_plugin_updater::Error::EmptyEndpoints => "not_configured: 更新端点未配置".to_string(),
         tauri_plugin_updater::Error::InsecureTransportProtocol => {
             "not_configured: 更新端点必须使用 HTTPS".to_string()
         }
         tauri_plugin_updater::Error::Minisign(_) => {
             "signature_invalid: 更新包签名校验失败，已拒绝安装".to_string()
         }
-        tauri_plugin_updater::Error::Network(_) => {
-            "download_failed: 更新包下载失败".to_string()
-        }
+        tauri_plugin_updater::Error::Network(_) => "download_failed: 更新包下载失败".to_string(),
         tauri_plugin_updater::Error::Io(error) => format!("install_failed: {error}"),
         tauri_plugin_updater::Error::Reqwest(error) => {
             format!("check_failed: 更新请求失败：{error}")
         }
-        tauri_plugin_updater::Error::ReleaseNotFound => {
-            "no_update: 未找到可用更新".to_string()
-        }
+        tauri_plugin_updater::Error::ReleaseNotFound => "no_update: 未找到可用更新".to_string(),
         other => format!("更新失败：{other}"),
     }
 }
@@ -299,7 +296,10 @@ mod tests {
             channel_endpoint("stable").as_deref(),
             Some("https://stable.example")
         );
-        assert_eq!(channel_endpoint("beta").as_deref(), Some("https://beta.example"));
+        assert_eq!(
+            channel_endpoint("beta").as_deref(),
+            Some("https://beta.example")
+        );
         // Unknown channels fall back to the stable endpoint.
         assert_eq!(
             channel_endpoint("release").as_deref(),

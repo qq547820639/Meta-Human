@@ -182,7 +182,13 @@ class RemoteGpuClient:
         return {"Authorization": f"Bearer {api_key.get_secret_value()}"}
 
     def _client(self) -> httpx.AsyncClient:
+        total = self._config.timeout_seconds
         return httpx.AsyncClient(
-            timeout=httpx.Timeout(self._config.timeout_seconds),
+            timeout=httpx.Timeout(
+                connect=min(5.0, total),
+                read=total,
+                write=total,
+                pool=min(5.0, total),
+            ),
             transport=self._transport,
         )

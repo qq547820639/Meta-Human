@@ -4,8 +4,8 @@ import httpx
 import pytest
 
 from voxstudio_core.providers.avatar_build import (
-    AvatarBuildService,
     AvatarBuildResult,
+    AvatarBuildService,
     AvatarBuildUnavailableError,
 )
 from voxstudio_core.providers.remote_gpu import RemoteGpuClient, RemoteGpuConfig

@@ -31,6 +31,8 @@ import {
 } from "./naturalConversationStateMachine";
 import type { SttSessionFactory } from "./stt";
 import type { VadAdapter } from "./vadAdapter";
+import { createReplyChunker } from "./replyChunker";
+import { createEchoGate } from "./echoGate";
 
 export interface NaturalReplyOutcome {
   readonly ok: boolean;
@@ -47,6 +49,8 @@ export interface NaturalReplyStreamerInput {
   readonly signal: AbortSignal;
   onGenerationId: (id: string) => void;
   onFirstToken: () => void;
+  /** Streaming text tokens; complete sentences are flushed to the TTS. */
+  onText?: (text: string) => void;
   onAudio: (audioBase64: string) => void;
 }
 
@@ -70,6 +74,10 @@ export interface NaturalConversationDeps {
   readonly getConversationId: () => string | null;
   /** Writes the assistant's FINAL text into the timeline (never on cancel). */
   readonly onReplyDelivered: (query: string, text: string) => void;
+  /** Receives each flushed sentence to be sent to the TTS engine in order. */
+  readonly onTtsSentence?: (sentence: string) => void;
+  /** Whether the platform provides echo cancellation (from probeMicCapabilities). */
+  readonly echoCancellation?: boolean;
   readonly onMetrics: (metrics: Partial<ConversationMetrics>) => void;
   readonly onStateChange: (state: NaturalConversationState) => void;
   readonly maxReconnectAttempts?: number;
@@ -116,6 +124,9 @@ export function createNaturalConversationEngine(
 
   const maxReconnect = deps.maxReconnectAttempts ?? 2;
   const reconnectDelay = deps.reconnectDelayMs ?? ((attempt: number) => attempt * 500);
+  // Playback-aware echo gate: suppresses suspected echo bursts right after the
+  // assistant starts speaking, while still letting a real user utterance barge in.
+  const echoGate = createEchoGate({ echoCancellation: deps.echoCancellation ?? false });
 
   function dispatch(action: NaturalConversationAction): void {
     state = naturalConversationReducer(state, action);
@@ -144,6 +155,12 @@ export function createNaturalConversationEngine(
   }
 
   function handleSpeechStart(): void {
+    // Suppress a VAD speech-start that is likely the assistant's own voice
+    // echoing off the mic right after playback began. A real user utterance is
+    // always passed through so barge-in stays armed.
+    if (echoGate.classifySpeechStart(performance.now()) === "suppress") {
+      return;
+    }
     const phase = state.phase;
     // Barge-in: the user starts speaking while the assistant is audible or
     // still thinking -> cancel the current turn immediately.
@@ -193,6 +210,13 @@ export function createNaturalConversationEngine(
       generationId = null;
       let firstTokenAt: number | null = null;
       let audioReceived = false;
+      // Buffers streaming text and flushes complete sentences to the TTS in
+      // order, so speech can start before the full reply is generated.
+      const chunker = createReplyChunker((sentence) => {
+        if (currentEpoch === epoch) {
+          deps.onTtsSentence?.(sentence);
+        }
+      });
 
       dispatch({ type: "REPLY_START" });
 
@@ -216,6 +240,11 @@ export function createNaturalConversationEngine(
             });
           }
         },
+        onText: (text) => {
+          if (currentEpoch === epoch) {
+            chunker.push(text);
+          }
+        },
         onAudio: (audioBase64) => {
           if (currentEpoch !== epoch) {
             return;
@@ -226,6 +255,7 @@ export function createNaturalConversationEngine(
               firstTokenToFirstAudioMs: performance.now() - firstTokenAt,
             });
           }
+          echoGate.onAssistantStarted(performance.now());
           dispatch({ type: "ASSISTANT_STARTED" });
           deps.playAudio(audioBase64);
         },
@@ -235,6 +265,8 @@ export function createNaturalConversationEngine(
         return; // interrupted / stopped while streaming
       }
       if (outcome.ok) {
+        // Flush any leftover trailing text fragment at end of stream.
+        chunker.finish();
         if (outcome.text) {
           deps.onReplyDelivered(query, outcome.text);
         }
@@ -242,6 +274,7 @@ export function createNaturalConversationEngine(
           // TTS audio was delivered; ensure the machine is in `speaking`
           // (idempotent with the onAudio callback that already dispatched
           // ASSISTANT_STARTED). ASSISTANT_ENDED arrives via the audio element.
+          echoGate.onAssistantStarted(performance.now());
           dispatch({ type: "ASSISTANT_STARTED" });
         } else {
           // Text fallback: no TTS audio, the turn is complete. ASSISTANT_ENDED
@@ -282,6 +315,7 @@ export function createNaturalConversationEngine(
     }
     deps.stopAudio();
     deps.stopAvatar();
+    echoGate.onAssistantEnded();
     deps.onMetrics({ interruptToSilenceMs: performance.now() - interruptAt });
     dispatch({ type: "INTERRUPT" });
     dispatch({ type: "INTERRUPT_RESOLVED" });
@@ -308,6 +342,7 @@ export function createNaturalConversationEngine(
     sttSession = null;
     deps.stopAudio();
     deps.stopAvatar();
+    echoGate.onAssistantEnded();
     await deps.vad.stop();
     dispatch({ type: "STOP" });
   }
@@ -330,7 +365,10 @@ export function createNaturalConversationEngine(
     },
     handleSpeechStart,
     handleSpeechEnd,
-    onAssistantAudioEnded: () => dispatch({ type: "ASSISTANT_ENDED" }),
+    onAssistantAudioEnded: () => {
+      echoGate.onAssistantEnded();
+      dispatch({ type: "ASSISTANT_ENDED" });
+    },
     onTranscriptEdit: (text) => dispatch({ type: "INTERIM", text }),
     onTranscriptConfirm: (text) => {
       const trimmed = text.trim();

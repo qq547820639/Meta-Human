@@ -1,6 +1,6 @@
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-from typing import AsyncIterator
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -17,7 +17,6 @@ from voxstudio_core.readiness.models import (
     CapabilityId,
     CapabilityState,
 )
-
 
 NOW = datetime(2026, 8, 1, 9, 30, tzinfo=UTC)
 

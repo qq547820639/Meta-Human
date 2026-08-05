@@ -1,0 +1,76 @@
+/* Studio colour theme.
+
+   All UI surfaces resolve their colours from the shared `--studio-*` custom
+   properties. The light palette is the default; the dark palette is applied
+   either automatically when the OS prefers a dark scheme (`prefers-color-scheme`)
+   or explicitly when JS sets `data-theme="dark"` on the root element. An
+   explicit `data-theme="light"` forces the light palette regardless of the OS.
+
+   `color-scheme` is set so native controls (scrollbars, form fields, the focus
+   ring) match the active palette. */
+
+:root {
+  color-scheme: light;
+
+  --studio-ink: oklch(25% 0.025 55deg);
+  --studio-muted: oklch(47% 0.025 60deg);
+  --studio-faint: oklch(61% 0.025 62deg);
+  --studio-canvas: oklch(96.5% 0.018 74deg);
+  --studio-soft: oklch(92% 0.027 70deg);
+  --studio-line: oklch(83% 0.03 68deg);
+  --studio-accent: oklch(56% 0.13 35deg);
+  --studio-accent-deep: oklch(49% 0.13 35deg);
+  --studio-success: oklch(50% 0.1 145deg);
+  --studio-attention: oklch(55% 0.13 70deg);
+}
+
+/* Dark palette, applied when the OS prefers dark and the user has not pinned
+   the light theme via JS. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+
+    --studio-ink: oklch(92% 0.012 60deg);
+    --studio-muted: oklch(70% 0.02 60deg);
+    --studio-faint: oklch(58% 0.02 60deg);
+    --studio-canvas: oklch(16% 0.015 60deg);
+    --studio-soft: oklch(21% 0.02 60deg);
+    --studio-line: oklch(30% 0.02 60deg);
+    --studio-accent: oklch(68% 0.14 35deg);
+    --studio-accent-deep: oklch(61% 0.13 35deg);
+    --studio-success: oklch(72% 0.12 145deg);
+    --studio-attention: oklch(72% 0.13 70deg);
+  }
+}
+
+/* Explicit overrides set by the theme hook. These win over the system
+   preference so the user can oppose the OS scheme. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --studio-ink: oklch(92% 0.012 60deg);
+  --studio-muted: oklch(70% 0.02 60deg);
+  --studio-faint: oklch(58% 0.02 60deg);
+  --studio-canvas: oklch(16% 0.015 60deg);
+  --studio-soft: oklch(21% 0.02 60deg);
+  --studio-line: oklch(30% 0.02 60deg);
+  --studio-accent: oklch(68% 0.14 35deg);
+  --studio-accent-deep: oklch(61% 0.13 35deg);
+  --studio-success: oklch(72% 0.12 145deg);
+  --studio-attention: oklch(72% 0.13 70deg);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --studio-ink: oklch(25% 0.025 55deg);
+  --studio-muted: oklch(47% 0.025 60deg);
+  --studio-faint: oklch(61% 0.025 62deg);
+  --studio-canvas: oklch(96.5% 0.018 74deg);
+  --studio-soft: oklch(92% 0.027 70deg);
+  --studio-line: oklch(83% 0.03 68deg);
+  --studio-accent: oklch(56% 0.13 35deg);
+  --studio-accent-deep: oklch(49% 0.13 35deg);
+  --studio-success: oklch(50% 0.1 145deg);
+  --studio-attention: oklch(55% 0.13 70deg);
+}

@@ -1,7 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
-from voxstudio_core.knowledge.sources import KnowledgeSourceStore
+from voxstudio_core.knowledge.sources import (
+    KnowledgeSourceEntry,
+    KnowledgeSourceStore,
+)
 from voxstudio_core.knowledge.sync import KnowledgeSyncService
 from voxstudio_core.security import BearerTokenGuard
 
@@ -47,7 +50,7 @@ class KnowledgeSourceResyncResponse(BaseModel):
     last_error: str | None = None
 
 
-def _to_response(source: object) -> KnowledgeSourceResponse:
+def _to_response(source: KnowledgeSourceEntry) -> KnowledgeSourceResponse:
     return KnowledgeSourceResponse(
         document_id=source.document_id,
         title=source.title,

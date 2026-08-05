@@ -13,6 +13,7 @@ import threading
 import time
 from collections import OrderedDict
 from statistics import fmean, median
+from typing import cast
 
 # Outcome kinds recorded for each provider call.
 OUTCOME_SUCCESS = "success"
@@ -32,7 +33,15 @@ _MAX_LATENCY_SAMPLES = 1024
 class ProviderMetrics:
     """Per-provider counters and bounded latency sample."""
 
-    __slots__ = ("_lock", "_total", "_success", "_error", "_cancelled", "_degraded", "_latencies_ms")
+    __slots__ = (
+        "_lock",
+        "_total",
+        "_success",
+        "_error",
+        "_cancelled",
+        "_degraded",
+        "_latencies_ms",
+    )
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
@@ -117,10 +126,10 @@ class ProviderMetricsRegistry:
             metrics.snapshot(provider=provider)
             for provider, metrics in providers
         ]
-        total_calls = sum(int(row["total"]) for row in rows)
+        total_calls = sum(cast(int, row["total"]) for row in rows)
 
         def total_rate(key: str) -> float:
-            numerator = sum(int(row[key]) for row in rows)
+            numerator = sum(cast(int, row[key]) for row in rows)
             return round(numerator / total_calls, 4) if total_calls else 0.0
 
         return {

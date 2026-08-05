@@ -73,3 +73,8 @@ xcrun stapler staple "${dmg}"
 xcrun stapler validate "${dmg}"
 
 printf 'Signed and notarized DMG: %s\n' "${dmg}"
+
+printf '%s\n' '-- Artifact provenance --'
+# Every release run produces checksums. This flow signs and notarizes, so the
+# provenance is recorded as signed+notarized (not fabricated).
+SIGNED=1 NOTARIZED=1 scripts/release-provenance.sh --output-dir "${project_root}/output"

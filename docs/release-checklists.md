@@ -112,6 +112,30 @@ scripts/release-closure.sh --install-root <已安装App> # 校验已安装实例
 - [ ] 卸载清理：删除 app 与数据目录后无残留进程/文件。
 - [ ] 崩溃清理：kill 主程序后无残留进程，重启可恢复，临时资源(像/录音)释放。
 
+### 3.5 产物溯源（Provenance）
+
+```bash
+bash -n scripts/release-provenance.sh          # 语法自检
+scripts/release-provenance.sh --output-dir output   # 对已构建产物生成校验和
+SIGNED=1 NOTARIZED=1 scripts/release-provenance.sh  # 已签名+公证的发布
+```
+
+- [ ] `output/SHA256SUMS` 逐行给出每个产物的 sha256 与绝对路径；缺失产物标注 `MISSING`。
+- [ ] `output/provenance.json` 含 `version` / `commit_sha` / `build_time_utc` /
+      `sign_status`，且 `sign_status` 与真实签名/公证状态一致（无凭证时记
+      `undetermined` / `unsigned`，绝不声称已签名）。
+- [ ] `scripts/release-dmg.sh` 在签名 + 公证 + stapling 完成后自动生成溯源。
+
+### 3.6 release-gate 与 UNVERIFIED 发布门禁
+
+`release-gate` job 在 `sidecar`/`frontend`/`rust`/`security` 全部通过后：构建 universal
+产物 → 生成溯源 → 上传 `release-artifacts`。**发布到真实端点的步骤被 `SIGNING_CERT` 与
+`SIGNING_IDENTITY` 两个 secret 门禁**；缺失时输出 `UNVERIFIED` 标记且不发布。
+
+- [ ] CI 中 `release-gate` 构建产物并生成 `SHA256SUMS` / `provenance.json`。
+- [ ] 未配置 `SIGNING_CERT` / `SIGNING_IDENTITY` 时打印 `UNVERIFIED` 标记，且不触碰任何
+      真实发布端点。
+
 ### 4. 钉死项（当前环境）
 
 在补齐凭证 / 干净 Mac 前，以下保持 UNVERIFIED 并作为发布阻塞项：

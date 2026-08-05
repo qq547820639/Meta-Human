@@ -64,6 +64,38 @@ def _timeout(service: str) -> CapabilityTransientFailure:
     )
 
 
+def _not_found(service: str) -> CapabilityActionRequired:
+    return CapabilityActionRequired(
+        code="provider_not_found",
+        message=f"远程{service}接口不存在（404），请检查服务地址是否正确。",
+        recommended_action="请检查远程服务地址与接口路径后重试。",
+        safe_detail=f"The remote {service} readiness endpoint was not found.",
+    )
+
+
+def _rate_limited(service: str) -> CapabilityTransientFailure:
+    return CapabilityTransientFailure(
+        code="provider_rate_limited",
+        message=f"远程{service}服务请求过于频繁（429），请稍后重试。",
+        safe_detail=f"The remote {service} readiness check was rate limited.",
+    )
+
+
+def _http_status_error(
+    error: httpx.HTTPStatusError,
+    *,
+    service: str,
+) -> CapabilityCheckOutcome:
+    status = error.response.status_code
+    if status in {401, 403}:
+        return _access_action(service)
+    if status == 404:
+        return _not_found(service)
+    if status == 429:
+        return _rate_limited(service)
+    return _unavailable(service)
+
+
 class RemoteVoiceEnrollAdapter:
     def __init__(
         self,
@@ -100,9 +132,7 @@ class RemoteVoiceEnrollAdapter:
         except httpx.TimeoutException:
             return _timeout("voice")
         except httpx.HTTPStatusError as error:
-            if error.response.status_code in {401, 403}:
-                return _access_action("voice")
-            return _unavailable("voice")
+            return _http_status_error(error, service="voice")
         except (httpx.RequestError, ValueError, KeyError, TypeError):
             return _invalid("voice")
         return CapabilityReady(
@@ -146,9 +176,7 @@ class RemoteAvatarEnrollAdapter:
         except httpx.TimeoutException:
             return _timeout("avatar")
         except httpx.HTTPStatusError as error:
-            if error.response.status_code in {401, 403}:
-                return _access_action("avatar")
-            return _unavailable("avatar")
+            return _http_status_error(error, service="avatar")
         except (httpx.RequestError, ValueError, KeyError, TypeError):
             return _invalid("avatar")
         return CapabilityReady(
@@ -173,7 +201,10 @@ class RemoteAvatarStreamAdapter:
         request: CapabilityCheckRequest,
     ) -> CapabilityCheckOutcome:
         del request
-        if not self._voice_sample_path.is_file() or not self._avatar_sample_path.is_file():
+        if (
+            not self._voice_sample_path.is_file()
+            or not self._avatar_sample_path.is_file()
+        ):
             return CapabilityActionRequired(
                 code="stream_sample_missing",
                 message="A bundled voice or avatar sample is missing.",
@@ -208,9 +239,7 @@ class RemoteAvatarStreamAdapter:
         except httpx.TimeoutException:
             return _timeout("avatar stream")
         except httpx.HTTPStatusError as error:
-            if error.response.status_code in {401, 403}:
-                return _access_action("avatar stream")
-            return _unavailable("avatar stream")
+            return _http_status_error(error, service="avatar stream")
         except (httpx.RequestError, ValueError, KeyError, TypeError):
             return _invalid("avatar stream")
         finally:
@@ -247,9 +276,7 @@ class RemoteTtsAdapter:
         except httpx.TimeoutException:
             return _timeout("TTS")
         except httpx.HTTPStatusError as error:
-            if error.response.status_code in {401, 403}:
-                return _access_action("TTS")
-            return _unavailable("TTS")
+            return _http_status_error(error, service="TTS")
         except (httpx.RequestError, ValueError, KeyError, TypeError):
             return _invalid("TTS")
         if not audio:

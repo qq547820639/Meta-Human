@@ -52,6 +52,24 @@ async def test_memory_management_migration_is_backward_compatible(
             )
             """
         )
+        # The conversations table (created by migration 010) is required by the
+        # later is_temporary migration; a real v14 database already has it.
+        await connection.execute(
+            """
+            CREATE TABLE conversations (
+                id TEXT PRIMARY KEY NOT NULL CHECK (length(id) > 0),
+                title TEXT NOT NULL DEFAULT '新对话',
+                avatar_id TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                last_message_at TEXT,
+                archived INTEGER NOT NULL DEFAULT 0
+                    CHECK (archived IN (0, 1)),
+                deleted INTEGER NOT NULL DEFAULT 0 CHECK (deleted IN (0, 1)),
+                summary TEXT
+            )
+            """
+        )
         await connection.execute(
             "CREATE INDEX memory_entries_type ON memory_entries (type)"
         )

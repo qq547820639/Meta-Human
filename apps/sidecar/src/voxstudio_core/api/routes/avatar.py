@@ -1,5 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from typing import Literal
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from voxstudio_core.persistence.build_job_repository import (

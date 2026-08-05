@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 from uuid import uuid4
 
 import aiosqlite
@@ -10,7 +10,7 @@ import aiosqlite
 from voxstudio_core.persistence.database import Database
 
 
-class DigitalHumanStatus(str, Enum):
+class DigitalHumanStatus(StrEnum):
     PENDING = "pending"
     BUILDING = "building"
     READY = "ready"
@@ -90,7 +90,9 @@ class DigitalHumanRepository:
             )
             return await _load(connection, resolved_id)
 
-    async def list(self, *, limit: int = 100, offset: int = 0) -> tuple[DigitalHuman, ...]:
+    async def list(
+        self, *, limit: int = 100, offset: int = 0
+    ) -> tuple[DigitalHuman, ...]:
         if limit < 1:
             raise ValueError("limit must be >= 1")
         if offset < 0:

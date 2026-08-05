@@ -1,10 +1,9 @@
 import ipaddress
 import re
 import secrets
-from typing import NoReturn
+from typing import NoReturn, SupportsIndex
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
-
 
 STARTUP_TOKEN_BYTES = 32
 MIN_STARTUP_TOKEN_LENGTH = 43
@@ -58,6 +57,6 @@ class SidecarConfig(BaseModel):
         validate_startup_token(token.get_secret_value())
         return token
 
-    def __reduce_ex__(self, protocol: int) -> NoReturn:
+    def __reduce_ex__(self, protocol: SupportsIndex) -> NoReturn:
         del protocol
         raise TypeError("SidecarConfig secrets must not be serialized")

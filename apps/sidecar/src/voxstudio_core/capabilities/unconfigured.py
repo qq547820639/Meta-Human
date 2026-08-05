@@ -5,7 +5,6 @@ from voxstudio_core.capabilities.base import (
 )
 from voxstudio_core.readiness.models import CapabilityId
 
-
 _CAPABILITY_LABELS: dict[CapabilityId, str] = {
     CapabilityId.LLM_CHAT: "local chat model",
     CapabilityId.EMBEDDING_TEXT: "knowledge embedding service",

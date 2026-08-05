@@ -132,7 +132,7 @@ async def test_failed_migration_leaves_a_restoreable_backup(
     )
 
     database = Database(path)
-    with pytest.raises(Exception):
+    with pytest.raises(ValueError):
         await database.migrate()
 
     # A restore point for the pending migration must exist and hold our marker.

@@ -1,6 +1,7 @@
-from pydantic import BaseModel, ConfigDict
+from typing import Any, cast
 
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel, ConfigDict
 
 from voxstudio_core.metrics import registry
 from voxstudio_core.security import BearerTokenGuard
@@ -45,6 +46,6 @@ def create_metrics_router(*, guard: BearerTokenGuard) -> APIRouter:
         Contains only aggregate counts and latency statistics -- no prompts,
         transcripts, configuration or any user content.
         """
-        return ProviderMetricsSummary(**registry.snapshot())
+        return ProviderMetricsSummary(**cast(dict[str, Any], registry.snapshot()))
 
     return router

@@ -1,5 +1,5 @@
-from dataclasses import dataclass
 import json
+from dataclasses import dataclass
 
 from voxstudio_core.persistence.database import Database
 
@@ -53,7 +53,7 @@ class ConversationHistoryStore:
                 """,
                 params,
             ) as cursor:
-                rows = await cursor.fetchall()
+                rows = list(await cursor.fetchall())
         messages = tuple(
             ConversationMessage(
                 role=row["role"],
@@ -103,7 +103,7 @@ class ConversationHistoryStore:
                 """,
                 params,
             ) as cursor:
-                rows = await cursor.fetchall()
+                rows = list(await cursor.fetchall())
         has_more = len(rows) > limit
         page_rows = rows[:limit]
         messages = tuple(
@@ -141,6 +141,34 @@ class ConversationHistoryStore:
             ) as cursor:
                 row = await cursor.fetchone()
         return int(row["total"]) if row is not None else 0
+
+    async def get_message_by_id(
+        self,
+        message_id: int,
+    ) -> ConversationMessage | None:
+        """Look up a single message by its row id (used to view a memory's
+        originating message). Returns ``None`` when the id is not found."""
+        async with self._database.transaction(immediate=False) as connection:
+            async with connection.execute(
+                """
+                SELECT
+                    id, role, content, citations, citation_urls, grounded, created_at
+                FROM conversation_messages
+                WHERE id = ?
+                """,
+                (message_id,),
+            ) as cursor:
+                row = await cursor.fetchone()
+        if row is None:
+            return None
+        return ConversationMessage(
+            role=row["role"],
+            content=row["content"],
+            citations=_parse_citations(row["citations"]),
+            citation_urls=_parse_citation_urls(row["citation_urls"]),
+            grounded=bool(row["grounded"]),
+            created_at=row["created_at"],
+        )
 
     async def append(
         self,

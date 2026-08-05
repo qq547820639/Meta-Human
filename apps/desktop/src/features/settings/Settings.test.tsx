@@ -244,10 +244,10 @@ describe("Settings", () => {
     fireEvent.click(screen.getByRole("button", { name: "测试远程连接" }));
 
     await waitFor(() =>
-      expect(
-        screen.getByText("远程服务连接正常（验证成功）。"),
-      ).toBeInTheDocument(),
+      expect(screen.getByTestId("remote-verify-detail")).toBeInTheDocument(),
     );
+    expect(screen.getByText("验证成功")).toBeInTheDocument();
+    expect(screen.getByText("https://gpu.example.com")).toBeInTheDocument();
     expect(checkRemoteProvider).toHaveBeenCalledWith(
       "https://gpu.example.com",
     );
@@ -447,6 +447,8 @@ describe("Settings", () => {
     await waitFor(() =>
       expect(screen.getByText("项目验收手册 · 3 段")).toBeInTheDocument(),
     );
+    // The last successful sync time is surfaced for each knowledge source.
+    expect(screen.getByText(/最后同步：/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "删除" }));
     await waitFor(() =>
       expect(
@@ -534,26 +536,26 @@ describe("Settings", () => {
       }),
     );
 
-    // Delete the entry after confirmation.
+    // Delete the entry through the confirmation dialog.
     fireEvent.click(screen.getByRole("button", { name: "删除" }));
     await waitFor(() =>
       expect(
-        screen.getByRole("button", { name: "确认删除？" }),
+        screen.getByRole("dialog", { name: "删除记忆" }),
       ).toBeInTheDocument(),
     );
-    fireEvent.click(screen.getByRole("button", { name: "确认删除？" }));
+    fireEvent.click(screen.getByRole("button", { name: "确认删除" }));
     await waitFor(() =>
       expect(deleteMemoryEntry).toHaveBeenCalledWith("memory-1"),
     );
 
-    // Clear all memory.
+    // Clear all memory through the confirmation dialog.
     fireEvent.click(screen.getByRole("button", { name: "清空记忆" }));
     await waitFor(() =>
       expect(
-        screen.getByRole("button", { name: "确认清空记忆？" }),
+        screen.getByRole("dialog", { name: "清空记忆" }),
       ).toBeInTheDocument(),
     );
-    fireEvent.click(screen.getByRole("button", { name: "确认清空记忆？" }));
+    fireEvent.click(screen.getByRole("button", { name: "清空" }));
     await waitFor(() => expect(clearMemoryEntries).toHaveBeenCalledTimes(1));
   });
 

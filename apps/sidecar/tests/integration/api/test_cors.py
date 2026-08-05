@@ -1,14 +1,13 @@
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 
 from voxstudio_core.api.app import create_app
 from voxstudio_core.config import SidecarConfig, generate_startup_token
-
 
 TRUSTED_ORIGINS = (
     "tauri://localhost",

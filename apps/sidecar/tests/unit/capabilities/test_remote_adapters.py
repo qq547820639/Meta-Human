@@ -63,7 +63,7 @@ async def test_avatar_enroll_adapter_returns_ready() -> None:
 
 
 @pytest.mark.asyncio
-async def test_avatar_stream_adapter_returns_ready_after_end_to_end_enrollment() -> None:
+async def test_avatar_stream_adapter_ready_after_enrollment() -> None:
     requests: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:

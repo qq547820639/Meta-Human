@@ -376,6 +376,8 @@ describe("ConversationManagement", () => {
     fireEvent.click(screen.getByRole("button", { name: "删除" }));
     const dialog = screen.getByRole("dialog");
     expect(deleteConversation).not.toHaveBeenCalled();
+    // The dialog clarifies that derived (long-term) memories are not deleted.
+    expect(dialog).toHaveTextContent("衍生记忆");
 
     fireEvent.click(within(dialog).getByRole("button", { name: "删除" }));
     await flush();

@@ -238,3 +238,37 @@ sidecar 监督线程负责重启/关闭。
 
 **回滚：** fail-closed 后重启应用即可重新拉起 sidecar；无需手动清理（临时资源在系统
 tmp 自动回收）。
+
+## 12. 发布产物溯源（Provenance）
+
+**已实现。** 每次发布构建后都会生成双份溯源产物，记录版本、提交 SHA、构建时间与每个
+产物的 sha256 校验和：
+
+- `output/SHA256SUMS`：`<sha256>  <绝对路径>` 逐行列出所有已收集产物；缺失的产物以
+  `MISSING  <路径>` 标注，绝不静默跳过。
+- `output/provenance.json`：结构化 JSON，含 `version`（来自 `tauri.conf.json`，回退到
+  `Cargo.toml`）、`commit_sha`（`git rev-parse HEAD`）、`build_time_utc`（ISO 8601 UTC）、
+  `sign_status` 以及 `artifacts[]`（每个产物的路径与 sha256）。
+
+**签名 / 公证状态如实标注（不伪造）：**
+- 仅当 `SIGNED` 与 `NOTARIZED` 均为 `1/true/yes` 时才记 `signed+notarized`。
+- 仅 `SIGNED` 为真记 `signed (not notarized)`。
+- 显式 `SIGNED=0/false/no` 记 `unsigned`。
+- 两者均未设置记 `undetermined`（不声称已签名）。
+
+入口：`scripts/release-provenance.sh`（语法自检 `bash -n`）。`scripts/release-dmg.sh`
+在签名 + 公证 + stapling 完成后自动调用（`SIGNED=1 NOTARIZED=1`）。
+
+## 13. release-gate 与 UNVERIFIED 发布门禁
+
+**已实现。** `.github/workflows/ci.yml` 的 `release-gate` job（依赖 `sidecar` /
+`frontend` / `rust` / `security` 全部通过后运行）现在是一个真实工作流：
+
+1. 构建 universal 桌面产物（`scripts/build-universal.sh`）。
+2. 生成溯源（调用 `scripts/release-provenance.sh`）。
+3. 将 `SHA256SUMS`、`provenance.json` 与 DMG 上传为 `release-artifacts` 构建产物。
+
+**发布到真实端点被显式门禁：** 仅当 `SIGNING_CERT` 与 `SIGNING_IDENTITY` 两个 secret
+同时存在时才允许连接到真实发布端点；否则打印清晰的 `UNVERIFIED` 标记（GitHub warning），
+明确说明「产物已构建 + 溯源已生成，但未发布到任何真实端点」。没有签名凭证时绝不声称
+「已发布」。

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 from typing import Any, Protocol
 
@@ -12,16 +12,16 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException
 from starlette.middleware.cors import CORSMiddleware
 
+from voxstudio_core.api.routes.avatar import create_avatar_router
 from voxstudio_core.api.routes.conversation import create_conversation_router
-from voxstudio_core.api.routes.memory import create_memory_router
-from voxstudio_core.api.routes.metrics import create_metrics_router
 from voxstudio_core.api.routes.feishu import (
     FeishuOAuthFactory,
     create_feishu_router,
 )
-from voxstudio_core.api.routes.avatar import create_avatar_router
 from voxstudio_core.api.routes.health import router as health_router
 from voxstudio_core.api.routes.knowledge import create_knowledge_router
+from voxstudio_core.api.routes.memory import create_memory_router
+from voxstudio_core.api.routes.metrics import create_metrics_router
 from voxstudio_core.api.routes.privacy import create_privacy_router
 from voxstudio_core.api.routes.readiness import (
     ReadinessLifecyclePort,
@@ -31,6 +31,7 @@ from voxstudio_core.api.routes.readiness import (
 from voxstudio_core.config import SidecarConfig
 from voxstudio_core.errors import (
     ErrorCode,
+    ErrorEnvelope,
     error_envelope,
     new_request_id,
     unexpected_error_envelope,
@@ -40,6 +41,12 @@ from voxstudio_core.knowledge.memory import MemoryService
 from voxstudio_core.knowledge.sources import KnowledgeSourceStore
 from voxstudio_core.knowledge.sync import KnowledgeSyncService
 from voxstudio_core.lifecycle import LifecycleNotAcceptingError
+from voxstudio_core.persistence.database import Database
+from voxstudio_core.persistence.digital_human_repository import (
+    DigitalHumanRepository,
+)
+from voxstudio_core.providers.build_job_service import BuildJobService
+from voxstudio_core.providers.remote_gpu import RemoteGpuClient
 from voxstudio_core.security import BearerTokenGuard
 from voxstudio_core.telemetry import (
     install_request_id_filter,
@@ -47,14 +54,6 @@ from voxstudio_core.telemetry import (
     set_request_id,
     valid_request_id,
 )
-from voxstudio_core.persistence.build_job_repository import BuildJobRepository
-from voxstudio_core.persistence.digital_human_repository import (
-    DigitalHumanRepository,
-)
-from voxstudio_core.providers.build_job_service import BuildJobService
-from voxstudio_core.providers.remote_gpu import RemoteGpuClient
-from voxstudio_core.persistence.database import Database
-
 
 logger = logging.getLogger("voxstudio_core.api")
 
@@ -307,7 +306,7 @@ def _error_response(
     code: str,
     message: str,
     retryable: bool,
-    headers: dict[str, str] | None = None,
+    headers: Mapping[str, str] | None = None,
     technical_message: str | None = None,
     details: dict[str, Any] | None = None,
     provider: str | None = None,
@@ -334,7 +333,7 @@ def _envelope_response(
     envelope: ErrorEnvelope,
     *,
     status_code: int,
-    headers: dict[str, str] | None = None,
+    headers: Mapping[str, str] | None = None,
 ) -> JSONResponse:
     response_headers = dict(headers or {})
     response_headers["X-Request-ID"] = envelope.request_id
@@ -360,7 +359,10 @@ def _http_error_contract(status_code: int) -> tuple[str, str]:
     if status_code == status.HTTP_405_METHOD_NOT_ALLOWED:
         return "method_not_allowed", "The request method is not allowed."
     if status_code == status.HTTP_409_CONFLICT:
-        return ErrorCode.TASK_STATE_CONFLICT, "The current state does not allow this operation."
+        return (
+            ErrorCode.TASK_STATE_CONFLICT,
+            "The current state does not allow this operation.",
+        )
     if status_code == status.HTTP_429_TOO_MANY_REQUESTS:
         return ErrorCode.PROVIDER_RATE_LIMITED, "Too many requests, please retry later."
     if status_code == status.HTTP_503_SERVICE_UNAVAILABLE:

@@ -7,8 +7,8 @@ import pytest_asyncio
 
 from voxstudio_core.knowledge.indexer import KnowledgeIndexer
 from voxstudio_core.knowledge.sync import (
-    SyncStatus,
     KnowledgeSyncService,
+    SyncStatus,
     freshness_for,
     humanize_error,
 )

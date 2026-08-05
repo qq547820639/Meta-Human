@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel, ConfigDict, Field
 
 from voxstudio_core.knowledge.memory import MemoryService
 from voxstudio_core.persistence.memory_entry_repository import (
@@ -6,7 +7,6 @@ from voxstudio_core.persistence.memory_entry_repository import (
     MemoryIgnoreRuleNotFoundError,
 )
 from voxstudio_core.security import BearerTokenGuard
-from pydantic import BaseModel, ConfigDict, Field
 
 
 class MemoryEntryOut(BaseModel):

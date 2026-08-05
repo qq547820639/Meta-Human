@@ -7,9 +7,9 @@
 # Notes:
 #   - The project is macOS-first (Tauri + AVFoundation capture + macOS Keychain),
 #     so every job runs on a macOS arm64 runner.
-#   - Python is managed by uv (apps/sidecar/uv.lock). ruff/mypy are NOT declared
-#     in pyproject.toml, so lint/type-check are reported as skipped rather than
-#     hard-failing the pipeline.
+#   - Python is managed by uv (apps/sidecar/uv.lock). ruff and mypy are declared
+#     as dev dependencies in pyproject.toml and run as hard-failing quality gates
+#     below (any violation fails the pipeline).
 #   - The real-sidecar integration test needs a freshly built sidecar binary, so
 #     the `sidecar` job builds it (scripts/build-sidecar.sh) and the frontend job
 #     downloads that artifact before running vitest.
@@ -62,23 +62,17 @@ jobs:
         run: uv sync --project apps/sidecar --frozen
         timeout-minutes: 5
 
-      - name: Report lint / type-check configuration
-        # ruff & mypy are not declared in pyproject.toml [dependency-groups],
-        # so the pipeline does not hard-gate on them. Add them to pyproject.toml
-        # and promote these to real gates when configured.
-        run: |
-          echo "::group::tooling"
-          uv run --project apps/sidecar python -c '
-          import tomllib
-          with open("apps/sidecar/pyproject.toml", "rb") as f:
-              data = tomllib.load(f)
-          dev = data.get("dependency-groups", {}).get("dev", [])
-          has_ruff = any("ruff" == d.split(">=")[0].split("==")[0] for d in dev)
-          has_mypy = any("mypy" == d.split(">=")[0].split("==")[0] for d in dev)
-          print(f"ruff configured: {has_ruff}")
-          print(f"mypy configured: {has_mypy}")
-          '
-          echo "::endgroup::"
+      - name: ruff lint
+        # ruff is a declared dev dependency and a real quality gate: any
+        # violation (E/F/W/I/B/UP) fails the pipeline.
+        run: uv run --project apps/sidecar ruff check apps/sidecar/src apps/sidecar/tests
+        timeout-minutes: 5
+
+      - name: mypy type-check
+        # mypy is a declared dev dependency and a real quality gate: any type
+        # error in the sidecar source fails the pipeline.
+        run: uv run --project apps/sidecar mypy apps/sidecar/src
+        timeout-minutes: 5
 
       - name: Run pytest (unit + integration + migrations)
         run: >
@@ -270,16 +264,25 @@ jobs:
         timeout-minutes: 10
 
   # ---------------------------------------------------------------------------
-  # Release gate: only green when every job above passes. Actual publishing is
-  # intentionally a no-op safety valve (`if: false`) until CD is wired up.
+  # Release gate: only green when every job above passes. This job builds the
+  # universal desktop bundle, generates artifact provenance (version / commit
+  # SHA / build time / sha256 checksums) and uploads everything as a release
+  # artifact. Actual publishing to a live endpoint is gated behind explicit
+  # signing credentials; without them the gate emits a clear UNVERIFIED marker
+  # and never claims a release.
   # ---------------------------------------------------------------------------
   release-gate:
     name: Release gate
     runs-on: macos-14
-    timeout-minutes: 5
+    timeout-minutes: 45
     needs: [sidecar, frontend, rust, security]
     if: ${{ !cancelled() && !failure() }}
+    env:
+      SIGNING_CERT: ${{ secrets.SIGNING_CERT }}
+      SIGNING_IDENTITY: ${{ secrets.SIGNING_IDENTITY }}
     steps:
+      - uses: actions/checkout@v4
+
       - name: All quality gates passed
         run: |
           echo "::group::gate summary"
@@ -289,6 +292,64 @@ jobs:
           echo "security : ${{ needs.security.result }}"
           echo "::endgroup::"
 
-      - name: Publish (disabled until CD is wired up)
-        if: false
-        run: echo "release pipeline not yet implemented"
+      - name: Set up uv (sidecar build)
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.9.0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Set up Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build universal desktop bundle
+        run: scripts/build-universal.sh
+        timeout-minutes: 30
+
+      - name: Generate artifact provenance
+        run: |
+          if [[ -n "${SIGNING_IDENTITY}" && -n "${SIGNING_CERT}" ]]; then
+            SIGNED=1 NOTARIZED=1 scripts/release-provenance.sh --output-dir output
+          elif [[ -n "${SIGNING_IDENTITY}" ]]; then
+            SIGNED=1 scripts/release-provenance.sh --output-dir output
+          else
+            SIGNED=0 scripts/release-provenance.sh --output-dir output
+          fi
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-artifacts
+          path: |
+            output/SHA256SUMS
+            output/provenance.json
+            output/VoxStudio-universal.dmg
+            apps/desktop/src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+          if-no-files-found: error
+
+      # Actual publishing is gated on explicit signing credentials. This step
+      # intentionally does NOT call a live release endpoint; wire in the real
+      # distribution (e.g. gh release / notarized DMG upload) here once
+      # SIGNING_CERT and SIGNING_IDENTITY are provisioned.
+      - name: Publish signed release (gated on signing credentials)
+        if: ${{ env.SIGNING_CERT != '' && env.SIGNING_IDENTITY != '' }}
+        run: |
+          echo "Release publish is gated on SIGNING_CERT + SIGNING_IDENTITY."
+          echo "Credentials present; configure the live distribution upload here."
+
+      # No signing credentials -> artifacts are built and provenanced but were
+      # NOT published to a live endpoint. We never claim a release.
+      - name: Emit UNVERIFIED release marker
+        if: ${{ env.SIGNING_CERT == '' || env.SIGNING_IDENTITY == '' }}
+        run: |
+          echo "::warning::RELEASE GATE UNVERIFIED — SIGNING_CERT / SIGNING_IDENTITY not set; artifacts built and provenance generated, but the release was NOT published to a live endpoint."

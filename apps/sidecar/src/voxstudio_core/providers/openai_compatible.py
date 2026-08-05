@@ -1,9 +1,14 @@
+import json
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
-import json
 
 import httpx
 
+from voxstudio_core.capabilities.base import (
+    ResponseValidationError,
+    is_html_content_type,
+    validate_json_response,
+)
 from voxstudio_core.providers.local_config import LocalProviderConfig
 
 
@@ -96,6 +101,15 @@ class OpenAICompatibleClient:
                 json=payload,
             ) as response:
                 response.raise_for_status()
+                if is_html_content_type(
+                    response.headers.get("content-type", "")
+                ):
+                    validation = validate_json_response(
+                        response,
+                        service="本地模型",
+                        required_fields=(),
+                    )
+                    raise ResponseValidationError(validation)
                 async for line in response.aiter_lines():
                     if not line.startswith("data:"):
                         continue
@@ -133,12 +147,21 @@ class OpenAICompatibleClient:
                 json=payload,
             )
             response.raise_for_status()
+            validation = validate_json_response(
+                response,
+                service="本地模型",
+                required_fields=("choices",),
+            )
+            if not validation.ok:
+                raise ResponseValidationError(validation)
             data = response.json()
             text = data["choices"][0]["message"]["content"]
             if not isinstance(text, str):
                 raise ValueError("chat completion returned empty content")
             if not text.strip():
-                raise EmptyProviderContentError("chat completion returned empty content")
+                raise EmptyProviderContentError(
+                    "chat completion returned empty content"
+                )
             return text.strip()
 
     async def embedding(self, *, model: str, input: str) -> Embedding:
@@ -181,8 +204,14 @@ class OpenAICompatibleClient:
             return text.strip()
 
     def _client(self) -> httpx.AsyncClient:
+        total = self._config.timeout_seconds
         return httpx.AsyncClient(
-            timeout=httpx.Timeout(self._config.timeout_seconds),
+            timeout=httpx.Timeout(
+                connect=min(5.0, total),
+                read=total,
+                write=total,
+                pool=min(5.0, total),
+            ),
             transport=self._transport,
         )
 

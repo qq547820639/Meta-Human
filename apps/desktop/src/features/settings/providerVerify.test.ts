@@ -2,9 +2,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   feishuStepsToState,
+  providerVerifyDetailStepLabel,
   providerVerifyLabels,
   verifyFeishu,
   verifyProvider,
+  verifyProviderDetail,
 } from "./providerVerify";
 
 afterEach(() => {
@@ -59,6 +61,54 @@ describe("providerVerify", () => {
       space_not_found: "Space ID 不存在",
       api_version_incompatible: "API 版本不兼容",
     });
+  });
+
+  it("verifyProviderDetail reports unconfigured when no URL is given", async () => {
+    const result = await verifyProviderDetail(
+      "  ",
+      vi.fn<() => Promise<boolean>>(),
+      "remote",
+    );
+    expect(result.state).toBe("unconfigured");
+    expect(result.providerType).toBe("remote");
+    expect(result.latencyMs).toBe(0);
+    expect(result.step).toBe("unconfigured");
+  });
+
+  it("verifyProviderDetail reports the url, provider type and latency on success", async () => {
+    const check = vi.fn<() => Promise<boolean>>().mockResolvedValue(true);
+    const result = await verifyProviderDetail(
+      "http://127.0.0.1:11434",
+      check,
+      "local",
+    );
+    expect(result.state).toBe("verified");
+    expect(result.url).toBe("http://127.0.0.1:11434");
+    expect(result.providerType).toBe("local");
+    expect(result.step).toBe("ok");
+    expect(result.latencyMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it("verifyProviderDetail records the failing step and latency on failure", async () => {
+    const check = vi.fn<() => Promise<boolean>>().mockResolvedValue(false);
+    const result = await verifyProviderDetail(
+      "http://127.0.0.1:9",
+      check,
+      "remote",
+    );
+    expect(result.state).toBe("network_unreachable");
+    expect(result.url).toBe("http://127.0.0.1:9");
+    expect(result.providerType).toBe("remote");
+    expect(result.step).toBe("connection");
+    expect(result.latencyMs).toBeGreaterThanOrEqual(0);
+    expect(result.detail).toBeTruthy();
+  });
+
+  it("verifyProviderDetailStepLabel maps the known steps", () => {
+    expect(providerVerifyDetailStepLabel("ok")).toBe("全部检查通过");
+    expect(providerVerifyDetailStepLabel("connection")).toBe("连接服务");
+    expect(providerVerifyDetailStepLabel("unconfigured")).toBe("未配置地址");
+    expect(providerVerifyDetailStepLabel("other")).toBe("other");
   });
 
   it("verifies Feishu steps and reports the doc list from the real source", async () => {

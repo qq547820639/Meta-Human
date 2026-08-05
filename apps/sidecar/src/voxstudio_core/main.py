@@ -12,28 +12,29 @@ import uvicorn
 from pydantic import SecretStr
 
 from voxstudio_core.api.app import create_app
+from voxstudio_core.capabilities.base import CapabilityAdapter
 from voxstudio_core.capabilities.knowledge import FeishuKnowledgeAdapter
 from voxstudio_core.capabilities.local import (
     LocalChatAdapter,
     LocalEmbeddingAdapter,
     LocalSttAdapter,
 )
+from voxstudio_core.capabilities.registry import CapabilityAdapterRegistry
 from voxstudio_core.capabilities.remote import (
     RemoteAvatarEnrollAdapter,
     RemoteAvatarStreamAdapter,
     RemoteTtsAdapter,
     RemoteVoiceEnrollAdapter,
 )
-from voxstudio_core.capabilities.registry import CapabilityAdapterRegistry
 from voxstudio_core.capabilities.unconfigured import (
     UnconfiguredCapabilityAdapter,
 )
 from voxstudio_core.config import SidecarConfig
-from voxstudio_core.knowledge.feishu import FeishuClient
 from voxstudio_core.knowledge.conversation import ConversationService
+from voxstudio_core.knowledge.feishu import FeishuClient
 from voxstudio_core.knowledge.history import ConversationHistoryStore
-from voxstudio_core.knowledge.memory import ConversationMemoryStore, MemoryService
 from voxstudio_core.knowledge.indexer import KnowledgeIndexer
+from voxstudio_core.knowledge.memory import ConversationMemoryStore, MemoryService
 from voxstudio_core.knowledge.retrieval import KnowledgeRetriever
 from voxstudio_core.knowledge.sources import KnowledgeSourceStore
 from voxstudio_core.knowledge.sync import KnowledgeSyncService
@@ -148,7 +149,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         config = SidecarConfig(
             host=host,
             port=port,
-            bearer_token=bearer_token,
+            bearer_token=SecretStr(bearer_token),
         )
         app = build_app(
             config=config,
@@ -235,7 +236,7 @@ def _is_listening(listener: socket.socket) -> bool:
 
 
 def _default_registry(database: Database) -> CapabilityAdapterRegistry:
-    adapters = {
+    adapters: dict[CapabilityId, CapabilityAdapter] = {
         capability_id: UnconfiguredCapabilityAdapter(capability_id)
         for capability_id in CapabilityId
     }

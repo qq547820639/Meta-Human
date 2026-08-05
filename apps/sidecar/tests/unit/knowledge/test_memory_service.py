@@ -13,7 +13,12 @@ from voxstudio_core.persistence.memory_entry_repository import (
 
 
 class FakeChatClient:
-    def __init__(self, *, text: str | None = None, error: Exception | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        text: str | None = None,
+        error: Exception | None = None,
+    ) -> None:
         self.text = text
         self.error = error
         self.calls: list[str] = []
@@ -313,7 +318,7 @@ async def test_prepare_for_injection_flags_conflicts_and_truncates(
     assert len(conflicts) == 2
     # Length budget truncates: not all entries fit.
     assert len(lines) > 0
-    assert sum(len(f"[{l.type}] {l.content}") for l in lines) <= 40
+    assert sum(len(f"[{entry.type}] {entry.content}") for entry in lines) <= 40
 
 
 @pytest.mark.asyncio

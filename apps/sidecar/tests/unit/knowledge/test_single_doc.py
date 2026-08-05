@@ -6,7 +6,7 @@ import pytest_asyncio
 
 from voxstudio_core.knowledge.indexer import KnowledgeIndexer
 from voxstudio_core.knowledge.sources import KnowledgeSourceStore
-from voxstudio_core.knowledge.sync import SyncStatus, KnowledgeSyncService
+from voxstudio_core.knowledge.sync import KnowledgeSyncService, SyncStatus
 from voxstudio_core.persistence.database import Database
 
 
