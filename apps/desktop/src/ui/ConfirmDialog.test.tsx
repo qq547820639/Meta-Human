@@ -1,9 +1,20 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { useState } from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import ConfirmDialog from "./ConfirmDialog";
-import accessibilityCss from "./accessibility.css?raw";
+
+// The `?raw` import resolves to an empty string under the current vitest CSS
+// handling, so read the real stylesheet from disk to assert the declared
+// accessibility rules (reduced-motion, visible focus, modal) are actually
+// present rather than silently empty.
+const accessibilityCss = readFileSync(
+  join(dirname(fileURLToPath(import.meta.url)), "accessibility.css"),
+  "utf8",
+);
 
 function Harness() {
   const [open, setOpen] = useState(false);

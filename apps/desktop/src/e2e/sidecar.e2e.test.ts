@@ -62,6 +62,12 @@ vi.mock("@tauri-apps/api/core", () => ({
 // it so results persist.
 const E2E_HUMAN_ID = "human-e2e-1";
 
+// A second human seeded by the launcher with NO remote resources (it never had
+// a successful build job), used to positively exercise the delete path. Unlike
+// `E2E_HUMAN_ID` — which owns remote resources from succeeded build jobs and so
+// is honest-delete gated — this one can be deleted without cleanup.
+const E2E_DELETE_HUMAN_ID = "human-e2e-delete";
+
 const suite = sidecarAvailable() ? describe.sequential : describe.skip;
 suite("sidecar E2E (real binary, fetch not mocked)", () => {
   let connection: SidecarConnection;
@@ -195,6 +201,9 @@ suite("sidecar E2E (real binary, fetch not mocked)", () => {
     await pollJobStatus(job.id, "cancelled");
   });
 
+  // The retry cycle (create -> validate_inputs fails -> retry -> succeeded)
+  // traverses several real sidecar states; under full-suite load the default
+  // 5s vitest timeout is too tight, so grant this test a longer budget.
   it("retries a failed build job after the media becomes available", async () => {
     const dir = mkdtempSync(join(tmpdir(), "e2e-retry-"));
     tempDirs.push(dir);
@@ -220,14 +229,15 @@ suite("sidecar E2E (real binary, fetch not mocked)", () => {
 
     const succeeded = await pollJobStatus(job.id, "succeeded");
     expect(succeeded.status).toBe("succeeded");
-  });
+  }, 30_000);
 
-  it("manages digital humans: default, list, rename, switch default, delete", async () => {
+  it("manages digital humans: default, list, rename, switch default, honest delete", async () => {
     const def = await getDefaultDigitalHuman();
     expect(def?.id).toBe(E2E_HUMAN_ID);
 
     const humans = await listHumans();
     expect(humans.humans.some((h) => h.id === E2E_HUMAN_ID)).toBe(true);
+    expect(humans.humans.some((h) => h.id === E2E_DELETE_HUMAN_ID)).toBe(true);
 
     const renamed = await renameHuman(E2E_HUMAN_ID, "E2E Renamed");
     expect(renamed.name).toBe("E2E Renamed");
@@ -235,9 +245,16 @@ suite("sidecar E2E (real binary, fetch not mocked)", () => {
     const switched = await setDefaultHuman(E2E_HUMAN_ID);
     expect(switched.is_default).toBe(true);
 
-    await deleteHuman(E2E_HUMAN_ID);
+    // Honest-delete contract: the default human owns remote resources from the
+    // succeeded build jobs, so deleting it is refused with 409 until its remote
+    // resources are cleaned up. We assert the rejection rather than bypassing
+    // the backend gate.
+    await expect(deleteHuman(E2E_HUMAN_ID)).rejects.toMatchObject({ status: 409 });
+
+    // A non-default human with no remote resources can be deleted directly.
+    await deleteHuman(E2E_DELETE_HUMAN_ID);
     const after = await getDefaultDigitalHuman();
-    expect(after).toBeNull();
+    expect(after?.id).toBe(E2E_HUMAN_ID);
   });
 
   it("manages conversations: create, list, get, rename, archive, unarchive, delete", async () => {

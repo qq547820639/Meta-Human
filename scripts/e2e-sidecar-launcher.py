@@ -62,6 +62,11 @@ else:
 # Shared contract between the launcher and the E2E test.
 E2E_HUMAN_ID = os.environ.get("VOXSTUDIO_E2E_HUMAN_ID", "human-e2e-1")
 E2E_HUMAN_NAME = os.environ.get("VOXSTUDIO_E2E_HUMAN_NAME", "E2E Human")
+# A second human with NO remote resources (never had a successful build job),
+# which the honest-delete test deletes successfully without cleanup.
+E2E_DELETE_HUMAN_ID = os.environ.get(
+    "VOXSTUDIO_E2E_DELETE_HUMAN_ID", "human-e2e-delete"
+)
 
 # Small delay on the remote enrollment endpoints so a build job stays in
 # RUNNING long enough for the frontend cancel test to hit it deterministically
@@ -218,6 +223,10 @@ async def seed_human(database_path: Path) -> None:
     humans = DigitalHumanRepository(database)
     try:
         await humans.create(name=E2E_HUMAN_NAME, digital_human_id=E2E_HUMAN_ID)
+        # Second, non-default human owned by the honest-delete test.
+        await humans.create(
+            name="E2E Delete Human", digital_human_id=E2E_DELETE_HUMAN_ID
+        )
     finally:
         await database.close()
 

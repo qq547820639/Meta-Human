@@ -92,7 +92,13 @@
 
 ## 第四阶段：交付与验收
 
-- [ ] Task 16: 补齐全量回归测试并执行完整验证脚本（foundation/mock-provider/real-sidecar/DMG/provider-readiness/release-readiness），输出完成表与未验证清单
+- [x] Task 16: 补齐全量回归测试并执行完整验证脚本（foundation/mock-provider/real-sidecar/DMG/provider-readiness/release-readiness），输出完成表与未验证清单
+  - [x] 修复既有两个失败用例：真实 Sidecar E2E「manages digital humans」（新增 `E2E_DELETE_HUMAN_ID`，断言删除默认数字人被 409 拒绝、删除无远程资源的非默认数字人成功）；`ConfirmDialog.test.tsx` CSS `?raw` 断言（改用 `readFileSync` 读真实 `accessibility.css`）
+  - [x] 补全回归断言 13（清空会话失败 UI 不丢数据）与 14（转写失败仍清理临时录音），并修复相关异步/模拟问题
+  - [x] 修复 Sidecar E2E「retries a failed build job」在满负载下超时（为该用例显式设置 30s 超时）
+  - [x] 全量验证：pytest 377 通过、vitest 36 文件/308 通过（含 10 真实 Sidecar E2E）、tsc 通过、vite build 通过、cargo fmt/clippy/test 通过
+  - [x] 验证脚本：`verify-foundation.sh` PASS、`smoke-mock-provider.py` 全 True、`smoke-dmg.sh` PASS、`smoke-providers.sh`（local 假阳性/remote/feishu/apple FAIL）、`verify-release-readiness.sh`（2 项 FAIL，缺 Apple 凭证）
+  - [x] 产物：`checklist.md` Task 16 与最终验收勾选、`tasks.md` Task 16 勾选、`output/production-convergence-summary.md` 交付总结
 
 # Task Dependencies
 - [Task 1] 独立（最高优先，先于 Task 2/3，因改动共流式/持久化）

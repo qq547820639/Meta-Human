@@ -7,6 +7,7 @@ import {
   postConversationReply,
   stopGenerating,
   streamConversationReply,
+  transcribeRecording,
 } from "./conversationClient";
 import {
   archiveConversation,
@@ -769,6 +770,73 @@ describe("ConversationWorkspace", () => {
 
     // Enter in the composer actually triggered a streamed reply.
     expect(streamConversationReply).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the local transcript (and surfaces the error) when clearing the conversation fails", async () => {
+    vi.mocked(listConversationMessages).mockResolvedValue({
+      messages: [
+        { role: "user", content: "要保留的问题" },
+        { role: "assistant", content: "要保留的回答" },
+      ],
+      nextCursor: null,
+      hasMore: false,
+    });
+    vi.mocked(clearConversationMessages).mockRejectedValue(
+      new ApiError(
+        {
+          code: "clear_failed",
+          message: "清空失败，请稍后重试。",
+          retryable: true,
+          request_id: "req-clear-1",
+          recommended_action: "请重试。",
+          technical_message: null,
+          details: null,
+          provider: null,
+          provider_status: null,
+          timestamp: null,
+        },
+        500,
+      ),
+    );
+
+    render(<ConversationWorkspace initialConversationId="conv-1" />);
+    await waitFor(() =>
+      expect(screen.getByText("要保留的问题")).toBeInTheDocument(),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "清空对话" }));
+    fireEvent.click(screen.getByRole("button", { name: "清空" }));
+
+    // The failed clear must not drop the local transcript.
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "清空失败，请稍后重试。",
+      ),
+    );
+    expect(clearConversationMessages).toHaveBeenCalledWith("conv-1");
+    expect(screen.getByText("要保留的问题")).toBeInTheDocument();
+    expect(screen.getByText("要保留的回答")).toBeInTheDocument();
+  });
+
+  it("deletes the temp recording even when transcription fails", async () => {
+    vi.mocked(startRecording).mockResolvedValue(undefined);
+    vi.mocked(stopRecording).mockResolvedValue("/tmp/voice-recording.wav");
+    vi.mocked(deleteMediaFile).mockResolvedValue(undefined);
+    vi.mocked(transcribeRecording).mockRejectedValue(
+      new Error("transcription failed"),
+    );
+
+    render(<ConversationWorkspace />);
+
+    fireEvent.click(screen.getByRole("button", { name: "语音提问" }));
+    await screen.findByRole("button", { name: "停止录音" });
+    fireEvent.click(screen.getByRole("button", { name: "停止录音" }));
+
+    // The temp recording is cleaned up in a finally block even though
+    // transcription failed, so no temp media file is leaked.
+    await waitFor(() =>
+      expect(deleteMediaFile).toHaveBeenCalledWith("/tmp/voice-recording.wav"),
+    );
   });
 });
 

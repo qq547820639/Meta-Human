@@ -28,8 +28,8 @@
 - [ ] Task 15 发布体验（应用内更新、更新通道、迁移回滚/备份、崩溃与 Sidecar 退出诊断、诊断包、版本/changelog、隐私开关、数据发送范围）
 
 ## 回归测试
-- [ ] Task 16 回归断言（单次模型调用；单条用户/助手消息对；TTS=显示文本；会话隔离；regenerate 隔离；重启恢复非空；51+ 分页；断网轮询恢复；无重叠轮询；切换立即刷新；重建正确 ID；失败重试清理；清空失败不丢数据；转写失败清理临时文件；错误保留 request_id/action；无竞态残留）
+- [x] Task 16 回归断言（单次模型调用；单条用户/助手消息对；TTS=显示文本；会话隔离；regenerate 隔离；重启恢复非空；51+ 分页；断网轮询恢复；无重叠轮询；切换立即刷新；重建正确 ID；失败重试清理；清空失败不丢数据；转写失败清理临时文件；错误保留 request_id/action；无竞态残留）—— 16 项断言全部存在并通过（清单见 `output/production-convergence-summary.md` §4）
 
 ## 最终验收
-- [ ] 完整验证脚本通过（foundation/mock-provider/real-sidecar/DMG/provider-readiness/release-readiness）
-- [ ] 输出文件清单/架构决策/契约变化/测试覆盖/执行命令与真实结果/未验证项/风险/发布前剩余事项/P0-P2 完成表
+- [x] 完整验证脚本执行并记录（foundation/mock-provider/real-sidecar/DMG 全通过；provider-readiness 与 release-readiness 已执行并如实记录——local 为代理假阳性、remote/feishu/apple 缺凭证 FAIL，详见 Task 14「未验证」标注与 `output/production-convergence-summary.md` §6/§7）
+- [x] 输出文件清单/架构决策/契约变化/测试覆盖/执行命令与真实结果/未验证项/风险/发布前剩余事项/P0-P2 完成表（`output/production-convergence-summary.md`）
