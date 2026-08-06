@@ -43,6 +43,53 @@ export interface EchoGate {
   readonly validBargeInCount: number;
 }
 
+/**
+ * Frame-level input suppression state used by {@link shouldAcceptMicFrame}.
+ *
+ * This complements {@link EchoGate.classifySpeechStart}: the gate classifies a
+ * VAD *event* (a speech-start) as echo or barge-in, while `shouldAcceptMicFrame`
+ * decides at the raw PCM-frame level whether the microphone should be trusted at
+ * all. While the assistant's TTS is audibly playing and the platform provides no
+ * OS/hardware echo cancellation (AEC), the assistant's own voice would otherwise
+ * be re-recognized as a fresh user utterance — so those frames are suppressed.
+ */
+export interface MicFrameSuppressionState {
+  /** True while assistant TTS audio is audibly playing. */
+  readonly isTtsPlaying: boolean;
+  /** True when the platform provides echo cancellation (AEC). */
+  readonly echoCancellation: boolean;
+  /**
+   * Milliseconds elapsed since TTS playback ended. Use `Infinity` when TTS has
+   * never played (frames are accepted immediately).
+   */
+  readonly msSinceTtsEnded: number;
+  /**
+   * Cooldown (ms) after playback ends during which mic frames are still
+   * suppressed, so the tail-end of the just-finished audio is not mistaken for
+   * a new utterance. Default 150.
+   */
+  readonly postTtsCooldownMs?: number;
+}
+
+/**
+ * Decide whether a raw microphone frame should be accepted as real user input.
+ *
+ *   - While TTS is playing: accept only when AEC is available (the OS already
+ *     removes the assistant's own voice). Without AEC, frames are suppressed so
+ *     the assistant's voice is never re-recognized.
+ *   - After TTS stops: accept again, but only after the configured cooldown so
+ *     the audio tail is not interpreted as speech.
+ *
+ * Pure and timer-free — the caller supplies the elapsed time.
+ */
+export function shouldAcceptMicFrame(state: MicFrameSuppressionState): boolean {
+  const cooldown = state.postTtsCooldownMs ?? 150;
+  if (state.isTtsPlaying) {
+    return state.echoCancellation === true;
+  }
+  return state.msSinceTtsEnded >= cooldown;
+}
+
 export interface EchoGateOptions {
   /** ms after playback begins during which a burst is treated as echo. */
   readonly shortBurstWindowMs?: number;

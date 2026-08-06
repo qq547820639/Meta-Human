@@ -20,6 +20,25 @@ export interface ReplyChunker {
   finish(): void;
   /** The currently buffered, not-yet-complete trailing fragment. */
   readonly pending: string;
+  /**
+   * Barge-in: capture the partially-streamed text so it can be resumed later
+   * rather than discarded. Clears the live buffer (a new turn must not inherit
+   * stale text) and returns the preserved fragment.
+   */
+  interrupt(): ReplyChunkerSnapshot;
+  /**
+   * Resume an interrupted reply: restore a previously preserved fragment so
+   * subsequent {@link push} calls continue appending to it.
+   */
+  resume(snapshot: ReplyChunkerSnapshot): void;
+}
+
+/** A preserved partial reply captured by {@link ReplyChunker.interrupt}. */
+export interface ReplyChunkerSnapshot {
+  /** The partial text streamed before the interrupt. */
+  readonly preservedText: string;
+  /** Marks that this snapshot came from an interrupt (vs. a normal pause). */
+  readonly wasInterrupted: boolean;
 }
 
 /** Characters that terminate a sentence / stable chunk. */
@@ -96,6 +115,21 @@ export function createReplyChunker(
         const tail = buffer;
         buffer = "";
         emit(tail);
+      }
+    },
+    interrupt() {
+      const snapshot: ReplyChunkerSnapshot = {
+        preservedText: buffer,
+        wasInterrupted: true,
+      };
+      // Clear the live buffer so a fresh turn does not inherit stale text; the
+      // caller can restore it via resume() to continue the same reply.
+      buffer = "";
+      return snapshot;
+    },
+    resume(snapshot) {
+      if (snapshot && snapshot.preservedText) {
+        buffer = snapshot.preservedText;
       }
     },
   };

@@ -31,6 +31,19 @@ export interface VadConfig {
   readonly silenceFramesToEnd: number;
   /** Minimum utterance length (ms); shorter blips are ignored. */
   readonly minSpeechMs: number;
+  /**
+   * Endpoint (end-of-speech) detection: minimum silence DURATION (ms) before a
+   * `speech_end` is raised. When set, it overrides `silenceFramesToEnd` with a
+   * time-based threshold (more robust to an adaptive frame cadence). Default
+   * `undefined` -> uses the frame-count threshold (existing behavior).
+   */
+  readonly minSilenceMs?: number;
+  /**
+   * Endpoint (end-of-speech) detection: force a `speech_end` once the utterance
+   * has run for this long (ms), regardless of silence — guards against a user
+   * who never stops speaking. Default `undefined` -> no timeout.
+   */
+  readonly speechToEndTimeoutMs?: number;
 }
 
 export type VadFrameEvent = "speech_start" | "speech_end";
@@ -91,7 +104,22 @@ export function createVadDetector(config: VadConfig = defaultVadConfig): VadDete
   let aboveCount = 0;
   let belowCount = 0;
   let speechStartMs = 0;
+  let belowRunStartMs = 0;
   const frameMs = (config.frameSize / config.sampleRate) * 1000;
+
+  /** End the current utterance, honoring `minSpeechMs` (clicks are ignored). */
+  function endSpeech(nowMs: number): VadFrameEvent | null {
+    const speechMs = nowMs - speechStartMs;
+    speechActive = false;
+    aboveCount = 0;
+    belowCount = 0;
+    belowRunStartMs = 0;
+    if (speechMs < config.minSpeechMs) {
+      // A click / blip, not a real utterance — ignore it entirely.
+      return null;
+    }
+    return "speech_end";
+  }
 
   return {
     get speechActive() {
@@ -102,12 +130,14 @@ export function createVadDetector(config: VadConfig = defaultVadConfig): VadDete
       aboveCount = 0;
       belowCount = 0;
       speechStartMs = 0;
+      belowRunStartMs = 0;
     },
     process(frame: Float32Array, nowMs: number): VadFrameEvent | null {
       const db = frameRmsDb(frame);
       if (db >= config.thresholdDb) {
         aboveCount += 1;
         belowCount = 0;
+        belowRunStartMs = 0;
         if (!speechActive && aboveCount >= config.speechFramesToStart) {
           speechActive = true;
           speechStartMs = nowMs;
@@ -116,19 +146,31 @@ export function createVadDetector(config: VadConfig = defaultVadConfig): VadDete
         }
       } else {
         belowCount += 1;
-        aboveCount = 0;
+        if (belowCount === 1) {
+          belowRunStartMs = nowMs;
+        }
         if (speechActive) {
-          if (belowCount >= config.silenceFramesToEnd) {
-            const speechMs = nowMs - speechStartMs;
-            speechActive = false;
-            belowCount = 0;
-            if (speechMs < config.minSpeechMs) {
-              // A click / blip, not a real utterance — ignore it entirely.
-              return null;
-            }
-            return "speech_end";
+          // Endpoint (end-of-speech). Use a time-based silence threshold when
+          // configured, otherwise the frame-count threshold (existing default).
+          const silenceReached =
+            config.minSilenceMs !== undefined
+              ? nowMs - belowRunStartMs >= config.minSilenceMs
+              : belowCount >= config.silenceFramesToEnd;
+          if (silenceReached) {
+            return endSpeech(nowMs);
           }
         }
+      }
+      // Force an endpoint once the utterance has run past the timeout, whether
+      // or not the user actually stopped speaking — a user who keeps talking
+      // never reaches the silence branch above, so the timeout is checked here
+      // for every frame while speech is active.
+      if (
+        speechActive &&
+        config.speechToEndTimeoutMs !== undefined &&
+        nowMs - speechStartMs >= config.speechToEndTimeoutMs
+      ) {
+        return endSpeech(nowMs);
       }
       return null;
     },

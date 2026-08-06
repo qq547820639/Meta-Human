@@ -59,6 +59,37 @@ export type NaturalReplyStreamer = (
   input: NaturalReplyStreamerInput,
 ) => Promise<NaturalReplyOutcome>;
 
+export interface FullyInterruptInput {
+  /** Abort the in-flight generation request (the client-side AbortController). */
+  readonly abortInFlight: () => void;
+  /** Ask the sidecar to cancel a real generation_id (best-effort). */
+  readonly cancelGeneration: (generationId: string) => void | Promise<void>;
+  /** Stop any audible playback AND clear the TTS queue in one call. */
+  readonly stopAudio: () => void;
+  /** Stop the avatar's subsequent actions (video/lipsync stream). */
+  readonly stopAvatar: () => void;
+  /** The currently active generation_id, if the SSE stream reported one. */
+  readonly generationId: string | null;
+}
+
+/**
+ * Atomically interrupt a reply across EVERY sink at once: TTS (stop audio +
+ * clear the queue), the avatar stream, and the in-flight generation/abort.
+ *
+ * This is the single choke-point for cancellation so a barge-in, safety-button
+ * interrupt, or disable always reaches TTS + avatar together — no path can stop
+ * only audio while the avatar keeps talking (or vice versa).
+ */
+export function fullyInterrupt(input: FullyInterruptInput): void {
+  input.abortInFlight();
+  const genId = input.generationId;
+  if (genId) {
+    void input.cancelGeneration(genId);
+  }
+  input.stopAudio();
+  input.stopAvatar();
+}
+
 export interface NaturalConversationDeps {
   readonly vad: VadAdapter;
   readonly sttFactory: SttSessionFactory;
@@ -307,18 +338,22 @@ export function createNaturalConversationEngine(
   function interrupt(): void {
     epoch += 1;
     const interruptAt = performance.now();
-    const genId = generationId;
-    abortController?.abort();
-    abortController = null;
     sttSession?.abort();
     sttSession = null;
-    if (genId) {
-      deps.cancelGeneration(genId).catch(() => {
-        // Cancel is best-effort; the client abort already closed the stream.
-      });
-    }
-    deps.stopAudio();
-    deps.stopAvatar();
+    // Route cancellation through the single atomic choke-point so TTS + avatar
+    // + the in-flight generation are all stopped together.
+    fullyInterrupt({
+      abortInFlight: () => {
+        abortController?.abort();
+        abortController = null;
+      },
+      cancelGeneration: (id) => {
+        void deps.cancelGeneration(id);
+      },
+      stopAudio: deps.stopAudio,
+      stopAvatar: deps.stopAvatar,
+      generationId,
+    });
     echoGate.onAssistantEnded();
     deps.onMetrics({ interruptToSilenceMs: performance.now() - interruptAt });
     dispatch({ type: "INTERRUPT" });

@@ -123,3 +123,108 @@ describe("VAD detector", () => {
     expect(vad.speechActive).toBe(false);
   });
 });
+
+describe("VAD configurable endpoint detection", () => {
+  function makeVad(minSilenceMs: number) {
+    return createVadDetector({
+      sampleRate: SAMPLE_RATE,
+      frameSize: FRAME,
+      thresholdDb: -30,
+      speechFramesToStart: 2,
+      silenceFramesToEnd: 12,
+      minSpeechMs: 0,
+      minSilenceMs,
+    });
+  }
+
+  it("a shorter configured silence threshold triggers end-of-speech sooner", () => {
+    const fast = makeVad(60); // 2 frames of silence at 30ms cadence
+    const slow = makeVad(300);
+    // Both start speaking identically.
+    for (let i = 0; i < 3; i += 1) {
+      fast.process(loud(), i * 30);
+      slow.process(loud(), i * 30);
+    }
+    let fastEndAt = -1;
+    let slowEndAt = -1;
+    for (let i = 3; i < 20; i += 1) {
+      if (fastEndAt < 0 && fast.process(silence(), i * 30) === "speech_end") {
+        fastEndAt = i;
+      }
+      if (slowEndAt < 0 && slow.process(silence(), i * 30) === "speech_end") {
+        slowEndAt = i;
+      }
+    }
+    expect(fastEndAt).toBeGreaterThanOrEqual(0);
+    expect(slowEndAt).toBeGreaterThanOrEqual(0);
+    expect(fastEndAt).toBeLessThan(slowEndAt);
+  });
+
+  it("without minSilenceMs it falls back to the frame-count threshold (default behavior)", () => {
+    const vad = createVadDetector({
+      sampleRate: SAMPLE_RATE,
+      frameSize: FRAME,
+      thresholdDb: -30,
+      speechFramesToStart: 2,
+      silenceFramesToEnd: 3,
+      minSpeechMs: 0,
+    });
+    let sawEnd = false;
+    let endAt = -1;
+    for (let i = 0; i < 20; i += 1) {
+      const frame = i < 3 ? loud() : silence();
+      const ev = vad.process(frame, i * 30);
+      if (ev === "speech_end") {
+        sawEnd = true;
+        endAt = i;
+      }
+    }
+    expect(sawEnd).toBe(true);
+    // 3 consecutive silence frames (i=3,4,5) -> end at the 3rd (i=5).
+    expect(endAt).toBe(5);
+  });
+
+  it("speechToEndTimeoutMs forces speech_end even while the user keeps speaking", () => {
+    const vad = createVadDetector({
+      sampleRate: SAMPLE_RATE,
+      frameSize: FRAME,
+      thresholdDb: -30,
+      speechFramesToStart: 2,
+      silenceFramesToEnd: 999, // silence threshold never reached alone
+      minSpeechMs: 0,
+      speechToEndTimeoutMs: 120, // 120ms of continuous speech -> forced end
+    });
+    let sawEnd = false;
+    // Continuous loud frames (never silent) — only the timeout can end it.
+    for (let i = 0; i < 30; i += 1) {
+      const ev = vad.process(loud(), i * 30);
+      if (ev === "speech_end") {
+        sawEnd = true;
+      }
+    }
+    expect(sawEnd).toBe(true);
+  });
+
+  it("still ignores blips shorter than minSpeechMs when using a time-based threshold", () => {
+    const vad = createVadDetector({
+      sampleRate: SAMPLE_RATE,
+      frameSize: FRAME,
+      thresholdDb: -30,
+      speechFramesToStart: 2,
+      silenceFramesToEnd: 2,
+      minSpeechMs: 200,
+      minSilenceMs: 60,
+    });
+    let sawEnd = false;
+    // ~120ms of speech then silence; under minSpeechMs (200) -> ignored.
+    for (let i = 0; i < 20; i += 1) {
+      const frame = i < 3 ? loud() : silence();
+      const ev = vad.process(frame, i * 30);
+      if (ev === "speech_end") {
+        sawEnd = true;
+      }
+    }
+    expect(sawEnd).toBe(false);
+    expect(vad.speechActive).toBe(false);
+  });
+});

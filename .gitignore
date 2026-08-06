@@ -28,3 +28,5 @@ output/*.log
 output/*.out
 output/playwright/
 output/sbom.cyclonedx.json
+output/conversation-budget-report.json
+output/conversation-budget-report.md

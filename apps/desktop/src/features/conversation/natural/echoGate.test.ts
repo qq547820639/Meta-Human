@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { createEchoGate } from "./echoGate";
+import { createEchoGate, shouldAcceptMicFrame } from "./echoGate";
 
 describe("echoGate", () => {
   it("suppresses a short burst right after playback begins (no AEC)", () => {
@@ -57,5 +57,68 @@ describe("echoGate", () => {
     gate.onAssistantStarted(1000);
     expect(gate.classifySpeechStart(1100)).toBe("suppress");
     expect(gate.classifySpeechStart(1300)).toBe("pass"); // beyond window
+  });
+});
+
+describe("shouldAcceptMicFrame", () => {
+  it("suppresses mic frames while TTS plays with no AEC", () => {
+    expect(
+      shouldAcceptMicFrame({
+        isTtsPlaying: true,
+        echoCancellation: false,
+        msSinceTtsEnded: Infinity,
+      }),
+    ).toBe(false);
+  });
+
+  it("accepts mic frames while TTS plays when AEC is available", () => {
+    expect(
+      shouldAcceptMicFrame({
+        isTtsPlaying: true,
+        echoCancellation: true,
+        msSinceTtsEnded: Infinity,
+      }),
+    ).toBe(true);
+  });
+
+  it("accepts frames when TTS has never played", () => {
+    expect(
+      shouldAcceptMicFrame({
+        isTtsPlaying: false,
+        echoCancellation: false,
+        msSinceTtsEnded: Infinity,
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps frames suppressed during the post-TTS cooldown", () => {
+    // Default cooldown is 150ms; 50ms since TTS ended -> still suppressed.
+    expect(
+      shouldAcceptMicFrame({
+        isTtsPlaying: false,
+        echoCancellation: false,
+        msSinceTtsEnded: 50,
+      }),
+    ).toBe(false);
+  });
+
+  it("accepts frames again once the cooldown has elapsed", () => {
+    expect(
+      shouldAcceptMicFrame({
+        isTtsPlaying: false,
+        echoCancellation: false,
+        msSinceTtsEnded: 200,
+      }),
+    ).toBe(true);
+  });
+
+  it("honors a custom post-TTS cooldown", () => {
+    const opts = {
+      isTtsPlaying: false,
+      echoCancellation: false,
+      postTtsCooldownMs: 500,
+    };
+    expect(shouldAcceptMicFrame({ ...opts, msSinceTtsEnded: 300 })).toBe(false);
+    expect(shouldAcceptMicFrame({ ...opts, msSinceTtsEnded: 500 })).toBe(true);
   });
 });

@@ -47,16 +47,16 @@
   - [x] 建立 CI 内可控真实 Provider smoke；真实失败不得降级成 PASS（`provider-smoke` job + `run-provider-acceptance-mock.sh` + `mock-provider-server.py` + `test_mock_provider_server.sh`；执行器退出码被遵守）
 
 ## 阶段五：P1 自然语音对话深化
-- [ ] Task 6: 全双工自然对话
-  - [ ] VAD、可配置端点检测、打断即停 TTS/数字人流、barge-in 语义保留
-  - [ ] 回声消除/门禁、防 TTS 被重识别为用户输入
-  - [ ] 流式 STT partial、流式 LLM、语义安全分句、渐进 TTS
-  - [ ] 文本/语音/视频并行流水线、单句 TTS 失败续播/降级
-  - [ ] 取消信号贯穿前端/Sidecar/Provider/TTS/avatar
-  - [ ] 音频设备切换、蓝牙/系统 I/O 变化、断网/弱网/超时恢复
-  - [ ] 重复发送/重复保存防护
-  - [ ] UI 状态：聆听/转写/理解/检索/思考/说话/已打断/恢复/离线降级
-  - [ ] 性能埋点与自动基准（P50/P95/失败率/取消成功率）；可配置预算，回归使 CI 失败
+- [x] Task 6: 全双工自然对话
+  - [x] VAD、可配置端点检测、打断即停 TTS/数字人流、barge-in 语义保留
+  - [x] 回声消除/门禁、防 TTS 被重识别为用户输入
+  - [x] 流式 STT partial、流式 LLM、语义安全分句、渐进 TTS
+  - [x] 文本/语音/视频并行流水线、单句 TTS 失败续播/降级
+  - [x] 取消信号贯穿前端/Sidecar/Provider/TTS/avatar
+  - [x] 音频设备切换、蓝牙/系统 I/O 变化、断网/弱网/超时恢复
+  - [x] 重复发送/重复保存防护
+  - [x] UI 状态：聆听/转写/理解/检索/思考/说话/已打断/恢复/离线降级
+  - [x] 性能埋点与自动基准（P50/P95/失败率/取消成功率）；可配置预算，回归使 CI 失败
 
 ## 阶段六：P1 数字人表现与降级
 - [ ] Task 7: 数字人状态机与降级

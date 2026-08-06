@@ -104,3 +104,55 @@ describe("replyChunker", () => {
     expect(chunker.pending).toBe("");
   });
 });
+
+describe("replyChunker barge-in preservation", () => {
+  it("interrupt preserves the partial text and marks wasInterrupted", () => {
+    const chunker = createReplyChunker(() => {});
+    chunker.push("你好，有什么");
+    expect(chunker.pending).toBe("你好，有什么");
+    const snapshot = chunker.interrupt();
+    expect(snapshot).toEqual({
+      preservedText: "你好，有什么",
+      wasInterrupted: true,
+    });
+    // The live buffer is cleared so a fresh turn does not inherit stale text.
+    expect(chunker.pending).toBe("");
+  });
+
+  it("resume restores the preserved fragment and push continues appending", () => {
+    const onSentence = vi.fn();
+    const chunker = createReplyChunker(onSentence);
+    chunker.push("你好，有什么可以");
+    const snapshot = chunker.interrupt();
+    expect(snapshot.wasInterrupted).toBe(true);
+
+    // User resumes / the reply continues mid-sentence.
+    chunker.resume(snapshot);
+    chunker.push("帮你的吗？");
+    expect(chunker.pending).toBe("");
+    expect(onSentence.mock.calls.map((c) => c[0])).toEqual(["你好，有什么可以帮你的吗？"]);
+  });
+
+  it("already-flushed sentences are not re-emitted across an interrupt", () => {
+    const onSentence = vi.fn();
+    const chunker = createReplyChunker(onSentence);
+    chunker.push("第一句。还没说完");
+    expect(onSentence).toHaveBeenCalledTimes(1);
+
+    const snapshot = chunker.interrupt();
+    expect(snapshot.preservedText).toBe("还没说完");
+
+    chunker.resume(snapshot);
+    chunker.push("的话。");
+    expect(onSentence.mock.calls.map((c) => c[0])).toEqual([
+      "第一句。",
+      "还没说完的话。",
+    ]);
+  });
+
+  it("resume with an empty snapshot is a harmless no-op", () => {
+    const chunker = createReplyChunker(() => {});
+    chunker.resume({ preservedText: "", wasInterrupted: true });
+    expect(chunker.pending).toBe("");
+  });
+});
