@@ -48,6 +48,7 @@ from voxstudio_core.persistence.digital_human_repository import (
 )
 from voxstudio_core.providers.build_job_service import BuildJobService
 from voxstudio_core.providers.remote_gpu import RemoteGpuClient
+from voxstudio_core.sanitize import install_redaction_filter
 from voxstudio_core.security import BearerTokenGuard
 from voxstudio_core.telemetry import (
     install_request_id_filter,
@@ -109,6 +110,7 @@ def create_app(
     )
 
     install_request_id_filter()
+    install_redaction_filter()
 
     @app.middleware("http")
     async def attach_request_id(request: Request, call_next):
