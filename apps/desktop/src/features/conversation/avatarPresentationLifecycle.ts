@@ -36,6 +36,8 @@ export type PresentationStage =
   | "loading"
   | "buffering"
   | "playing"
+  | "interrupted"
+  | "degraded"
   | "reconnecting"
   | "fallback"
   | "auth-expired"
@@ -71,6 +73,14 @@ export type PresentationAction =
   | { readonly type: "PRESENT_LOADED" }
   /** The media element is actually playing. */
   | { readonly type: "PRESENT_PLAYING" }
+  /** The live stream was interrupted (e.g. barge-in); the stream is paused. */
+  | { readonly type: "PRESENT_INTERRUPT" }
+  /** Resume a live stream that was interrupted. */
+  | { readonly type: "PRESENT_RESUME" }
+  /** The stream is still live but degraded (e.g. audio-only after a stall). */
+  | { readonly type: "PRESENT_DEGRADED" }
+  /** Recover from a degraded presentation back toward a playable stream. */
+  | { readonly type: "PRESENT_RECOVER" }
   /** The stream dropped; increment the reconnect attempt counter. */
   | { readonly type: "PRESENT_RECONNECT" }
   /** A rebuild was issued; the new stream is loading again. */
@@ -101,6 +111,26 @@ export function presentationLifecycleReducer(
     case "PRESENT_PLAYING":
       if (state.stage === "buffering" || state.stage === "loading") {
         return { stage: "playing", mode: "live", reconnectAttempts: state.reconnectAttempts };
+      }
+      return state;
+    case "PRESENT_INTERRUPT":
+      if (state.stage === "playing" || state.stage === "buffering") {
+        return { stage: "interrupted", mode: "live", reconnectAttempts: state.reconnectAttempts };
+      }
+      return state;
+    case "PRESENT_RESUME":
+      if (state.stage === "interrupted") {
+        return { stage: "playing", mode: "live", reconnectAttempts: state.reconnectAttempts };
+      }
+      return state;
+    case "PRESENT_DEGRADED":
+      if (state.stage === "playing" || state.stage === "buffering") {
+        return { stage: "degraded", mode: "live", reconnectAttempts: state.reconnectAttempts };
+      }
+      return state;
+    case "PRESENT_RECOVER":
+      if (state.stage === "degraded") {
+        return { stage: "reconnecting", mode: "live", reconnectAttempts: state.reconnectAttempts };
       }
       return state;
     case "PRESENT_RECONNECT":

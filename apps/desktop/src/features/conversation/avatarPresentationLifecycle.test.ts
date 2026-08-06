@@ -157,6 +157,72 @@ describe("presentationLifecycleReducer — unified digital-human lifecycle", () 
       initialPresentationState,
     );
   });
+
+  it("plays -> interrupted -> resumes back to playing", () => {
+    const playing = apply(
+      initialPresentationState,
+      { type: "PRESENT_START" },
+      { type: "PRESENT_LOADED" },
+      { type: "PRESENT_PLAYING" },
+    );
+    const interrupted = apply(playing, { type: "PRESENT_INTERRUPT" });
+    expect(interrupted.stage).toBe("interrupted");
+    expect(interrupted.mode).toBe("live");
+    const resumed = apply(interrupted, { type: "PRESENT_RESUME" });
+    expect(resumed.stage).toBe("playing");
+  });
+
+  it("does not interrupt a stream that is not actively presenting", () => {
+    const loading = apply(initialPresentationState, { type: "PRESENT_START" });
+    expect(apply(loading, { type: "PRESENT_INTERRUPT" }).stage).toBe("loading");
+    const fallback = apply(initialPresentationState, { type: "PRESENT_FALLBACK" });
+    expect(apply(fallback, { type: "PRESENT_INTERRUPT" }).stage).toBe("fallback");
+  });
+
+  it("plays -> degraded -> reconnect -> plays again", () => {
+    const playing = apply(
+      initialPresentationState,
+      { type: "PRESENT_START" },
+      { type: "PRESENT_LOADED" },
+      { type: "PRESENT_PLAYING" },
+    );
+    const degraded = apply(playing, { type: "PRESENT_DEGRADED" });
+    expect(degraded.stage).toBe("degraded");
+    expect(degraded.mode).toBe("live");
+
+    // degraded -> recovering into a reconnectable stream -> rebuild -> playing.
+    const reconnecting = apply(degraded, { type: "PRESENT_RECOVER" });
+    expect(reconnecting.stage).toBe("reconnecting");
+    const rebuilt = apply(
+      reconnecting,
+      { type: "PRESENT_RECONNECTED" },
+      { type: "PRESENT_LOADED" },
+      { type: "PRESENT_PLAYING" },
+    );
+    expect(rebuilt.stage).toBe("playing");
+  });
+
+  it("does not recover a degraded stream that is not in the degraded phase", () => {
+    const playing = apply(
+      initialPresentationState,
+      { type: "PRESENT_START" },
+      { type: "PRESENT_LOADED" },
+      { type: "PRESENT_PLAYING" },
+    );
+    expect(apply(playing, { type: "PRESENT_RECOVER" }).stage).toBe("playing");
+  });
+
+  it("maps to error from any active phase", () => {
+    const playing = apply(
+      initialPresentationState,
+      { type: "PRESENT_START" },
+      { type: "PRESENT_LOADED" },
+      { type: "PRESENT_PLAYING" },
+    );
+    const err = apply(playing, { type: "PRESENT_ERROR" });
+    expect(err.stage).toBe("error");
+    expect(err.mode).toBe("static");
+  });
 });
 
 describe("deriveStaticPose — natural static degradation", () => {

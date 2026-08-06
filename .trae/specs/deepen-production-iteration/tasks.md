@@ -59,14 +59,14 @@
   - [x] 性能埋点与自动基准（P50/P95/失败率/取消成功率）；可配置预算，回归使 CI 失败
 
 ## 阶段六：P1 数字人表现与降级
-- [ ] Task 7: 数字人状态机与降级
-  - [ ] idle/listening/transcribing/thinking/retrieving/speaking/interrupted/reconnecting/degraded/error
-  - [ ] 音视频时间戳同步、音素/viseme 口型同步、打断即停声像
-  - [ ] 首帧超时、掉帧监测、自动重连、卡死检测
-  - [ ] 静态头像/仅语音/纯文本分级降级与自动恢复
-  - [ ] 不显示黑屏/空播放器/永久冻结旧帧
-  - [ ] 素材质量检查与不合格修改建议
-  - [ ] 远程资源创建/重试/清理/删除幂等，崩溃后可恢复
+- [x] Task 7: 数字人状态机与降级
+  - [x] idle/listening/transcribing/thinking/retrieving/speaking/interrupted/reconnecting/degraded/error
+  - [x] 音视频时间戳同步、音素/viseme 口型同步、打断即停声像
+  - [x] 首帧超时、掉帧监测、自动重连、卡死检测
+  - [x] 静态头像/仅语音/纯文本分级降级与自动恢复
+  - [x] 不显示黑屏/空播放器/永久冻结旧帧
+  - [x] 素材质量检查与不合格修改建议
+  - [x] 远程资源创建/重试/清理/删除幂等，崩溃后可恢复
 
 ## 阶段七：P1 零配置首次使用
 - [ ] Task 8: 普通用户首次使用
