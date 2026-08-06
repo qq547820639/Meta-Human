@@ -122,6 +122,33 @@ jobs:
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
+  # Flaky-test detection: run the full sidecar suite twice and fail if any
+  # test outcome is inconsistent between the two runs. This forbids masking
+  # intermittent failures behind a simple "rerun until green".
+  # ---------------------------------------------------------------------------
+  flaky-detect:
+    name: Flaky test detection
+    runs-on: macos-14
+    timeout-minutes: 20
+    needs: sidecar
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Sync sidecar virtualenv
+        run: uv sync --project apps/sidecar --frozen
+        timeout-minutes: 5
+
+      - name: Detect flaky tests (two full-suite passes)
+        run: scripts/check-test-flakiness.sh --project apps/sidecar --passes 2
+        timeout-minutes: 15
+
+  # ---------------------------------------------------------------------------
   # Frontend: type check -> unit + real-sidecar integration tests -> build
   # ---------------------------------------------------------------------------
   frontend:
@@ -307,7 +334,7 @@ jobs:
     name: Release gate
     runs-on: macos-14
     timeout-minutes: 45
-    needs: [sidecar, frontend, rust, security]
+    needs: [sidecar, flaky-detect, frontend, rust, security]
     if: ${{ !cancelled() && !failure() }}
     env:
       SIGNING_CERT: ${{ secrets.SIGNING_CERT }}
@@ -322,10 +349,11 @@ jobs:
       - name: All quality gates passed
         run: |
           echo "::group::gate summary"
-          echo "sidecar  : ${{ needs.sidecar.result }}"
-          echo "frontend : ${{ needs.frontend.result }}"
-          echo "rust     : ${{ needs.rust.result }}"
-          echo "security : ${{ needs.security.result }}"
+          echo "sidecar      : ${{ needs.sidecar.result }}"
+          echo "flaky-detect : ${{ needs.flaky-detect.result }}"
+          echo "frontend     : ${{ needs.frontend.result }}"
+          echo "rust         : ${{ needs.rust.result }}"
+          echo "security     : ${{ needs.security.result }}"
           echo "::endgroup::"
 
       - name: Set up uv (sidecar build)
