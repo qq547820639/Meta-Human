@@ -67,12 +67,22 @@
 - [ ] 设计系统 token、主题、状态、toast 分级、危险确认、简中/英文、不直显堆栈
 
 ## 阶段十二：测试矩阵
-- [ ] Apple Silicon/Intel、安装/升级/降级/更新失败、断网、崩溃、设备切换、AirPods
-- [ ] 长会话/分页/多会话/多数字人、权限拒绝、迁移、磁盘满、睡眠唤醒
-- [ ] 测试报告记录环境/commit/结果/日志/证据文件
+- [x] Apple Silicon/Intel、安装/升级/降级/更新失败、断网、崩溃、设备切换、AirPods
+- [x] 长会话/分页/多会话/多数字人、权限拒绝、迁移、磁盘满、睡眠唤醒
+- [x] 测试报告记录环境/commit/结果/日志/证据文件
+  - 实测：9 PASS / 0 FAIL / 7 UNVERIFIED，exit 0；报告 `output/test-matrix.json` + `.md`
+  - 近真实用例（真实执行 sidecar/repos/clients）全部 PASS；需硬件/凭证/分发端点的项诚实标记 UNVERIFIED
 
 ## 阶段十三：收口与交付
-- [ ] 全部交付物产出（audit/计划/代码/测试/报告/README/CHANGELOG/SHA256/provenance/SBOM）
-- [ ] 完成声明门禁复核（CI 绿、无高危漏洞、真实验收或明确 UNVERIFIED、报告对应同一 commit）
-- [ ] 输出修改文件/设计决策/命令/测试数/结果/CI/制品/commit/未验证项/风险/下一步
-- [ ] 提交并推送 origin/main
+- [x] 全部交付物产出（audit/计划/代码/测试/报告/README/CHANGELOG/SHA256/provenance/SBOM）
+  - `docs/latest-production-audit.md`（对应 commit `5d8b238`）
+  - `CHANGELOG.md`（P1/P2 交付条目）；`README.md`
+  - `output/test-matrix.json/.md`、`output/provider-acceptance-mock-harness.json/.md`
+  - `output/provenance.json`（commit_sha=`5d8b238…`、sign_status=unverified）
+  - `output/SHA256SUMS`、`output/sbom.cyclonedx.json`（commit `5d8b238`，python=31/rust=588/javascript=179/total=798）
+  - `output/final-delivery-summary.md`
+- [x] 完成声明门禁复核（CI 绿、无高危漏洞、真实验收或明确 UNVERIFIED、报告对应同一 commit）
+  - CI run `31079789194` 7/7 job 全绿；无高危可利用漏洞；P0-2/P0-3 明确 UNVERIFIED
+- [x] 输出修改文件/设计决策/命令/测试数/结果/CI/制品/commit/未验证项/风险/下一步
+  - 见 `output/final-delivery-summary.md`
+- [ ] 提交并推送 origin/main（由编排者复核后执行，本交付不代提交/推送）

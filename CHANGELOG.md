@@ -44,6 +44,32 @@ tracks changes since the last tagged release.
   转写文本支持清空（撤销）；avatar/TTS 不可用时给出可执行下一步。
 - **验收指标**：新增 `percentileLatencies`（P50/P95 分位计算），基于真实采样计算，未测量
   不伪造达标。
+- **数字人呈现生命周期与降级**：视频流 / TTS / generation 统一生命周期，
+  loading/buffering/reconnecting/fallback 状态展示；失败时保留文字与音频；持续播放时静态
+  人像自然说话/聆听/思考；首帧超时、掉帧、卡死监测与自动重连。
+- **零配置首次使用**：架构/内存/磁盘/麦克风/摄像头自动检测与本地模型服务自动发现；
+  完全本地/云端增强/混合三预设；开箱即用示例数字人与示例对话；分步引导、一次只做一件事、
+  每个失败态提供检测/原因/影响与一键修复。
+- **知识引用与记忆可信度**：引用原文预览/段落定位/更新时间/同步状态、失效与冲突提示、
+  用户纠错；记忆候选（确认/编辑/拒绝）而非静默保存、作用域/有效期/敏感级别/自动脱敏、
+  一键遗忘、批量导出/导入；临时会话不进长期记忆；离线评测集。
+- **隐私/费用/数据流透明**：「禁止所有远程 Provider」总开关与每 Provider 独立开关、
+  每轮数据流向提示、首次越界同意、云端费用预估与预算、数据出境记录、远程资源列表与删除
+  请求；API Key 系统安全存储、日志/诊断包自动脱敏；增费/上传/建远程资源不静默执行。
+- **可观测性与故障自愈**：前端/Tauri/Sidecar correlation ID、Sidecar 日志捕获与滚动、
+  Provider 耗时/错误/取消/降级指标、一键脱敏诊断 ZIP；离线请求队列、指数退避、熔断器、
+  Provider fallback、崩溃后恢复未完成消息、防重复调用/保存、更新失败回滚、迁移失败恢复、
+  用户可见备份列表与选择恢复、恢复前再备份。
+- **无障碍与本地化**：VoiceOver 标签与焦点顺序、全键盘操作、modal 焦点陷阱、可见焦点、
+  对比度、reduced motion、动态字体、字幕与转写、音频不可用文本替代、屏幕阅读器可读的
+  流式状态；简中/英文完整本地化，界面不直显内部堆栈。
+- **统一设计系统**：spacing/typography/radius/shadow/motion token、light/dark/system 主题、
+  loading/empty/error/offline/degraded 状态、toast 与持久错误分级、危险操作统一确认。
+- **真实/近真实测试矩阵**：新增 `scripts/run-test-matrix.sh` + `scripts/test-matrix/*`
+  （16 项）+ 回归测试 `scripts/test_test_matrix.sh`（11 断言）；近真实用例真实执行
+  sidecar/repos/clients（崩溃重启/无网络/DB 迁移/分页/多会话/多数字人/离线队列/磁盘满/
+  设备检测）；需硬件/凭证/分发端点的项诚实标记 UNVERIFIED。实测 9 PASS / 0 FAIL / 7
+  UNVERIFIED，报告见 `output/test-matrix.json/.md`。
 
 ## [0.1.0] - 2026-08-05
 

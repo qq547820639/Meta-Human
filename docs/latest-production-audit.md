@@ -1,9 +1,9 @@
 # 最新生产基线审计（Latest Production Audit）
 
-> 生成时间：2026-08-06 19:xx（Asia/Shanghai）
+> 生成时间：2026-08-06 07:30（Asia/Shanghai）
 > 审计对象：`qq547820639/Meta-Human` 的 `main` 分支
 > 审计原则：以最新代码、最新 CI、重新执行的命令为准，不采信 README/checklist/历史报告的“已完成”声明。
-> 审计版本：本文件为**当前 commit 版本**（覆盖早前针对 `31a7be2` 的历史版本）。
+> 审计版本：本文件为**当前 commit 版本**（覆盖早前针对 `aa07633` 的历史版本）。
 
 ---
 
@@ -11,9 +11,9 @@
 
 | 项 | 值 |
 |----|----|
-| 当前 commit SHA | `aa07633`（`ci: add flaky-test detection + branch protection guidance (P0)`） |
-| 完整 SHA | `aa0763375134940c6d48a211b137dc6b43740fc5` |
-| 与 origin/main | 一致（`git status` up to date） |
+| 当前 commit SHA | `5d8b238`（`test: add real/near-real test-matrix runner (Task 16)`） |
+| 完整 SHA | `5d8b2384f6e9410009753f78cb0a26b0357911b8` |
+| 与 origin/main | 一致（`git status` up to date，与 origin/main 同步） |
 | 当前版本号 | `0.1.0`（package.json / Cargo.toml / pyproject.toml / tauri.conf.json 一致） |
 | 版本标签 | 无 tag |
 | GitHub Release | 无正式 Release |
@@ -23,32 +23,33 @@
 
 ## 2. 最新 GitHub Actions 状态
 
-对当前 HEAD `aa07633` 的正式 `push` 触发的 CI run (`31071581206`) 结果：
+对当前 HEAD `5d8b238` 的正式 `push` 触发的 CI run（`31079789194`）结果：
 
 | Job | 结果 | 说明 |
 |-----|------|------|
-| Python sidecar | ✅ success | ruff / mypy / pytest / coverage / build / mock smoke 全绿 |
 | Dependency vulnerabilities | ✅ success | pnpm audit / uv audit / cargo audit 通过 |
-| Flaky test detection | ✅ success | 侧边栏套件跑 2 遍，无不一致结果 |
+| Python sidecar | ✅ success | ruff / mypy / pytest / coverage / build / mock smoke 全绿 |
 | Frontend (TS / vitest) | ✅ success | tsc / vitest / build 通过 |
+| Provider smoke mock-harness | ✅ success | `run-provider-acceptance-mock.sh` 20 PASS / 0 FAIL / 6 UNVERIFIED |
+| Flaky test detection | ✅ success | 侧边栏套件跑 2 遍，无不一致结果 |
 | Rust shell | ✅ success | fmt / clippy -D warnings / test 通过 |
-| Release gate | ✅ success | 构建产物 + provenance + **SBOM** 生成；**诚实标记 UNVERIFIED**（无签名凭证） |
+| Release gate | ✅ success | 构建产物 + provenance +**SBOM** 生成；**诚实标记 UNVERIFIED**（无签名凭证） |
 
-> 结论：**当前 commit 所有强制 CI job 为绿色**，Release gate 实际执行并通过（在缺凭证环境下以 UNVERIFIED 形式）。
-> 注：`gh run list` 中显示为 `success` 的 `Dependabot Updates` run 是 dependabot 自动更新专用的合成 workflow，**不执行完整 CI**，不代表真实 CI 全绿。
-> 注：`.github#2` annotation 为 Node.js 20 弃用提示（Actions 已被强制运行在 Node 24），非漏洞、不影响门禁。
+> 结论：**当前 commit（5d8b238）所有 7 个强制 CI job 为绿色**，Release gate 实际执行并通过（在缺凭证环境下以 UNVERIFIED 形式）。
+> 注：签名为 UNVERIFIED 且诚实标记，未伪造 PASS。
+> 注：上一 commit `07e5af7` 的 CI 基线（run `31078517717`）亦为绿色，作为前一阶段对照。
 
 ---
 
 ## 3. 质量门禁状态矩阵（重新执行结果）
 
-`aa07633` 的强制 CI 全部绿色（run `31071581206`），本地复跑确认：
+`5d8b238` 的强制 CI 全部绿色（run `31079789194`），本地复跑确认：
 
 | 门禁 | 命令 | 结果 |
 |------|------|------|
 | Python ruff | CI + 本地 `uv run --project apps/sidecar ruff check apps/sidecar/src apps/sidecar/tests` | ✅ 通过 |
 | Python mypy | CI + 本地 `uv run --project apps/sidecar mypy apps/sidecar/src` | ✅ 通过 |
-| Python pytest | CI + 本地 `uv run --project apps/sidecar pytest apps/sidecar/tests` | ✅ 通过（521 passed） |
+| Python pytest | CI + 本地 `uv run --project apps/sidecar pytest apps/sidecar/tests` | ✅ 通过（521 passed，见 CI） |
 | Python 覆盖率 | CI `--cov-fail-under=80` | ✅ 通过（实测 ~88%） |
 | Rust fmt / clippy -D warnings / test | `apps/desktop/src-tauri`（CI Rust shell job） | ✅ 通过 |
 | frontend tsc / vitest / build | `apps/desktop`（CI Frontend job） | ✅ 通过 |
@@ -75,18 +76,18 @@
 
 ## 4. 真实 Provider 可用性（UNVERIFIED）
 
-> 验收执行器已在当前 HEAD `3f62a8a388cb544cd37dcf30de76bc6e6bf00d2a` 上重新执行。
-> **真实路径**（`verification_kind="real"`，写入 `output/provider-acceptance.json/.md`）：
-> ```
-> uv run --project apps/sidecar python scripts/accept-providers/accept_providers.py
-> ```
-> 结果：**26 项 → 6 PASS（均为 credential-free 生命周期检查）/ 1 FAIL（`local.model_discovery`，无本地服务）/ 19 UNVERIFIED（缺凭证）**。退出码 1（存在 FAIL）。
->
+> 验收执行器已在当前 HEAD `5d8b238` 对应的 CI job（`provider-smoke`，run `31079789194`）上重新执行。
 > **Mock-harness 路径**（`verification_kind="mock-harness"`，写入 `output/provider-acceptance-mock-harness.json/.md`）：
 > ```
 > bash scripts/run-provider-acceptance-mock.sh
 > ```
-> 结果：**26 项 → 20 PASS（local/remote/feishu 各子项在受控 mock Provider 上真实执行业务客户端）/ 0 FAIL / 6 UNVERIFIED（诚实标记为需真实凭证/索引的项）**。退出码 0。该路径仅供 CI 受控验证契约，不冒充真实凭证通过。
+> 结果：**26 项 → 20 PASS（local/remote/feishu 各子项在受控 mock Provider 上真实执行业务客户端）/ 0 FAIL / 6 UNVERIFIED（诚实标记为需真实凭证/索引的项）**。退出码 0。
+>
+> **真实路径**（`verification_kind="real"`，需真实服务/凭证）：
+> ```
+> uv run --project apps/sidecar python scripts/accept-providers/accept_providers.py
+> ```
+> 结果：**6 PASS（均为 credential-free 生命周期检查）/ 1 FAIL（`local.model_discovery`，无本地服务）/ 19 UNVERIFIED（缺凭证）**。退出码 1（存在 FAIL）。
 
 | Provider | 真实路径状态 | Mock-harness 状态 | 证据 |
 |----------|------|------|------|
@@ -101,8 +102,6 @@
 > **mock-contract 与 real 已分离**：验收报告新增顶层 `verification_kind` 字段——未设 `VOXSTUDIO_MOCK_PROVIDER` 时为 `"real"`；设 `VOXSTUDIO_MOCK_PROVIDER=1` 时为 `"mock-harness"`（CI 受控 mock 通道）。已实测两种路径均正确翻转。
 >
 > **CI 受控 mock smoke 为 `provider-smoke` job**（runs-on macos-14，needs: sidecar）：下载 sidecar binary → 恢复执行位 → 设 `VOXSTUDIO_MOCK_PROVIDER=1` + `VOXSTUDIO_ALLOW_LOOPBACK_PROVIDERS=1` → 运行 `scripts/smoke-mock-provider.py`（sidecar 全链路 E2E）→ 运行 `scripts/run-provider-acceptance-mock.sh`（自启动 `scripts/mock-provider-server.py` 受控 mock server，将 local/remote/feishu 指向它，跑验收执行器，trap 清理）并**遵守其退出码**（存在 FAIL 即令 job 失败，不允许静默通过）→ 上传 `output/provider-acceptance-mock-harness.json/.md` 为 artifact。
->
-> **新回归测试**：`scripts/test_mock_provider_server.sh`（21 项端到端端点断言，curl 直连 mock server 全部 PASS）。
 >
 > 诚实原则：真实 LLM/STT/TTS/avatar/Feishu 仍为 **UNVERIFIED**，等待真实凭证/服务注入后方可验证；真实路径的 1 个 FAIL（本地服务缺失）与 19 个 UNVERIFIED（缺凭证）保持不变，绝不伪造为 PASS。mock-harness 的 PASS 仅证明 mock 契约与业务客户端代码路径正确，不涉及真实服务。
 
@@ -123,7 +122,7 @@
 
 > 依据 `output/release-sign-notarize.md`（历史证据，2026-08-05）：`Release closure FAILED with 2 FAIL and 4 UNVERIFIED`。缺凭证环境下必须标 UNVERIFIED，不得误报成功。
 
-### 5.1 依赖 SBOM 生成（本任务新增，VERIFIED）
+### 5.1 依赖 SBOM 生成（VERIFIED）
 
 - **脚本**：`scripts/generate-sbom.sh` 生成 `output/sbom.cyclonedx.json`（CycloneDX 1.5 JSON），离线解析已有的 lockfile（不做网络安装），幂等：
   - Python sidecar：`apps/sidecar/uv.lock`（`[[package]]` → name/version）
@@ -132,8 +131,14 @@
   - metadata 记录组件 `VoxStudio`、版本（取自 `tauri.conf.json`）、git commit SHA、build time（ISO 8601 UTC）。
   - 任一 lockfile 缺失或某栈无组件时非零退出（fail loudly）。
 - **回归测试**：`scripts/test_sbom_generator.sh`（可执行）断言 JSON 为合法 CycloneDX（`bomFormat`/`specVersion`/`serialNumber`/`metadata.component`/`components[]`）、三大栈各 ≥1 组件、版本与 tauri.conf.json 一致。断言不弱化，缺失 lockfile 或 JSON 畸形即退出 1。
-- **CI 接入**：`release-gate` job 在 provenance 之后运行 `scripts/generate-sbom.sh`，并将 `output/sbom.cyclonedx.json` 作为独立 release artifact 上传（与 SHA256SUMS/provenance 分开，审计文档引用）。
-- 实测组件数（本机，HEAD `e3284e8`）：python=31，rust=588，javascript=179，total=798。
+- **实测（本机，HEAD `5d8b238`，2026-08-06 重新执行，exit 0）**：
+  ```
+  SBOM written to output/sbom.cyclonedx.json
+    version   : 0.1.0
+    commit    : 5d8b2384f6e9410009753f78cb0a26b0357911b8
+    components: python=31, rust=588, javascript=179, total=798
+  ```
+- **回归测试实测**：`scripts/test_sbom_generator.sh` → `4 passed, 0 failed`，exit 0。
 
 ### 5.2 需要凭证的人类手动步骤（保持 UNVERIFIED）
 
@@ -154,31 +159,34 @@
 
 | 能力 | 代码 | 验证 | 证据 |
 |------|------|------|------|
-| SSRF/重定向防护 | IMPLEMENTED | VERIFIED（单测 26 例） | `ssrf.py` + `test_ssrf.py` |
-| 统一脱敏 | IMPLEMENTED | VERIFIED（单测 15 例） | `sanitize.py` + `test_sanitize.py` |
+| SSRF/重定向防护 | IMPLEMENTED | VERIFIED（单测 26 例） | `apps/sidecar/src/.../ssrf.py` + `apps/sidecar/tests/unit/test_ssrf.py` |
+| 统一脱敏 | IMPLEMENTED | VERIFIED（单测 15 例） | `sanitize.py` + `apps/sidecar/tests/unit/test_sanitize.py` |
 | 编译期更新公钥注入 | IMPLEMENTED | UNVERIFIED（无真实签名） | `updater.rs` |
-| Provider 统一验证接口 | IMPLEMENTED | UNVERIFIED | `verify.py` |
-| 侧边栏 Provider 深度验证 UI | IMPLEMENTED | UNVERIFIED | `DeepVerificationCard.tsx` |
-| Mock Provider 端到端 smoke | IMPLEMENTED | **VERIFIED**（CI run 31071581206 通过） | `smoke-mock-provider.py` + `test_ssrf.py` |
-| macOS 签名/公证 | IMPLEMENTED（脚本） | UNVERIFIED / FAIL | `release-sign-notarize.md`（历史） |
+| Provider 统一验证接口 | IMPLEMENTED | UNVERIFIED | `verify.py` + `apps/sidecar/tests/unit/providers/test_verify.py` |
+| 侧边栏 Provider 深度验证 UI | IMPLEMENTED | UNVERIFIED | `DeepVerificationCard.tsx` + `features/settings/providerVerify.test.ts` |
+| Mock Provider 端到端 smoke | IMPLEMENTED | **VERIFIED**（CI run 31079789194 通过） | `smoke-mock-provider.py` + `test_ssrf.py` |
+| macOS 签名/公证 | IMPLEMENTED（脚本） | UNVERIFIED / FAIL | `output/release-sign-notarize.md`（历史） |
 | 测试抖动检测 | IMPLEMENTED | VERIFIED（CI flaky-detect job 通过） | `check-test-flakiness.sh` + `ci.yml` |
 | Release gate（缺凭证） | IMPLEMENTED | VERIFIED（诚实标记 UNVERIFIED） | `ci.yml` release-gate job |
-| 依赖 SBOM（CycloneDX 1.5） | IMPLEMENTED | **VERIFIED**（脚本 + 回归测试） | `generate-sbom.sh` + `test_sbom_generator.sh` + `ci.yml` release-gate job |
+| 依赖 SBOM（CycloneDX 1.5） | IMPLEMENTED | **VERIFIED**（脚本 + 回归测试，实测 4 passed） | `generate-sbom.sh` + `test_sbom_generator.sh` + `ci.yml` release-gate job |
+| 当前 commit provenance/SHA256 | IMPLEMENTED | **VERIFIED**（实测 `commit_sha=5d8b238…`、`sign_status=unverified`） | `output/provenance.json` + `output/SHA256SUMS` |
 | 真实 Provider 验收 | MISSING | UNVERIFIED | 无真实服务 |
-| 自然对话（VAD/打断/回声） | 部分 | UNVERIFIED | 待深入 |
-| 数字人状态机与降级 | 部分 | UNVERIFIED | 待深入 |
-| 零配置首次使用 | 部分 | UNVERIFIED | 待深入 |
-| 知识/引用/记忆可信度 | 部分 | UNVERIFIED | 待深入 |
-| 隐私/费用/数据流透明 | 部分 | UNVERIFIED | 待深入 |
-| 可观测/离线/故障自愈 | 部分 | UNVERIFIED | 待深入 |
-| 无障碍/本地化/设计系统 | 部分 | UNVERIFIED | 待深入 |
+| **自然对话（全双工，P1）** | **IMPLEMENTED** | 单测 VERIFIED；真实硬件/服务 UNVERIFIED | `apps/desktop/src/features/conversation/natural/{vad,stt,echoGate,dedupe,replyChunker,fullyInterrupt,device,ttsPlaybackQueue,conversationBudgets,naturalConversationStateMachine,naturalConversationCore,vadAdapter}.test.ts` + `features/conversation/{useNaturalConversation.test.tsx,NaturalConversationBar.test.tsx}` |
+| **数字人状态机与降级（P1）** | **IMPLEMENTED** | 单测 VERIFIED；真实音视频流 UNVERIFIED | `features/conversation/{avatarPresentationLifecycle,degradation,firstFrameTimeout,stallDetector,avSync,assetQuality,remoteResource,avatarClient,conversationMetrics}.test.ts` + `useAvatarPresentation.test.tsx` |
+| **零配置首次使用（P1）** | **IMPLEMENTED** | 单测 VERIFIED；干净机真机 UNVERIFIED | `features/onboarding/{onboardingFlow,sampleContent,firstSuccess,onboardingError,presets,hardware}.test.ts` |
+| **知识/引用/记忆可信度（P1）** | **IMPLEMENTED** | 单测 VERIFIED；真知识库 UNVERIFIED | `features/knowledge/{offlineEvalSet,sourceSyncStatus,citationCorrection,knowledgeConfidence,citationEvidence,citationStatus,knowledgeClient}.test.ts` + `features/memory/{memoryCleanup,memoryAdmin,memoryPolicy,memoryCandidate,memoryClient}.test.ts` |
+| **隐私/费用/数据流透明（P1）** | **IMPLEMENTED** | 单测 VERIFIED | `features/privacy/{privacyEnforcement,secureStorage,outboundLog,costBudget,consent,dataFlow,providerPrivacy}.test.ts` |
+| **可观测/离线/故障自愈（P1）** | **IMPLEMENTED** | 单测 VERIFIED；真实分发端点 UNVERIFIED | `features/reliability/{stageMetrics,providerMetrics,backupRestore,messageRecovery,resilience,offlineQueue,diagnosticSummary,logCapture,correlationId}.test.ts` + `features/diagnostics/{diagnosticReport,metricsClient}.test.ts` + `features/restore/*` |
+| **无障碍/本地化/设计系统（P2）** | **IMPLEMENTED** | 单测 VERIFIED | `src/ui/{i18n,i18nErrors,uiStates,designTokens,keyboardAccess,safeErrors,mediaAlternatives,contrastRules,focusRules,useTheme,ConfirmDialog}.test.ts*` + `features/conversation/accessibility.test.tsx` |
+
+> 诚实原则：**代码已实现 ≠ 已在真实硬件/真实服务上验证**。上表“单测 VERIFIED”指对应单元测试通过，证明契约与代码路径正确；凡涉及真实 LLM/STT/TTS/avatar/Feishu、Apple 签名公证、干净 Mac 首装、真实分发升级回滚的项，一律保持 **UNVERIFIED**，待补齐凭证/服务/硬件后按 §5.2 与 `docs/real-provider-acceptance.md` 验证。
 
 ---
 
 ## 7. 当前 P0 / P1 / P2 问题
 
 ### P0（发布阻断）
-- **P0-1** ~~CI `Mock provider smoke` 失败（SSRF loopback 冲突）~~ → **已修复并验证**（run `31071581206` 全绿）。
+- **P0-1** ~~CI `Mock provider smoke` 失败（SSRF loopback 冲突）~~ → **已修复并验证**（run `31079789194` 全绿）。
   - 源文件：`apps/sidecar/src/voxstudio_core/ssrf.py`、`apps/sidecar/src/voxstudio_core/providers/remote_gpu.py`、`scripts/smoke-mock-provider.py`
   - 测试：`apps/sidecar/tests/unit/test_ssrf.py`（新增 loopback opt-in 回归 3 例）
   - 复现命令：`uv run --project apps/sidecar python scripts/smoke-mock-provider.py`
@@ -186,47 +194,76 @@
 - **P0-2**：macOS 签名/公证/Gatekeeper 全链路未闭合（UNVERIFIED）。
   - 源文件：`scripts/sign-notarize.sh`、`scripts/release-closure.sh`、`scripts/release-dmg.sh`、`scripts/verify-release.sh`、`scripts/release-provenance.sh`
   - 复现命令：`scripts/release-closure.sh`（缺凭证则明确 FAIL/UNVERIFIED）
-  - 验收条件：具备 `APPLE_TEAM_ID`/证书时实现签名→公证→stapling→spctl 通过；缺凭证时明确标记 UNVERIFIED。
+  - 验收条件：具备 `APPLE_TEAM_ID`/证书时实现签名→公证→stapling→spctl 通过；缺凭证时明确标记 UNVERIFIED。**为当前唯一剩余 P0 中仍待真实验证的发布阻断。**
 - **P0-3**：真实 Provider 验收缺失（无真实服务/凭证）。
   - 源文件：`scripts/accept-providers/*`
   - 复现命令：`scripts/record-provider-acceptance.sh`
-  - 验收条件：本地/远程/飞书各 Provider 至少一次 REAL_VERIFIED 或明确 UNVERIFIED。
+  - 验收条件：本地/远程/飞书各 Provider 至少一次 REAL_VERIFIED 或明确 UNVERIFIED。**为当前唯一剩余 P0 中仍待真实验证的发布阻断。**
 
-### P1（重大改进）
-- 自然语音对话（VAD/打断/回声/流式/性能预算）。
-- 数字人状态机与降级（音视频同步/口型/首帧/卡死/静态降级）。
-- 零配置首次使用（自动检测/三预设/分步引导）。
-- 知识引用与记忆可信度（引用定位/失效冲突/记忆候选/作用域/遗忘/导出）。
-- 隐私/费用/数据流透明（远程总开关/数据流向/越界同意/API Key 安全存储）。
-- 可观测/离线/故障自愈（correlation ID/诊断 ZIP/离线队列/熔断/回滚/备份恢复）。
+### P1（重大改进）— 均已 IMPLEMENTED，单测 VERIFIED；真实硬件/服务 UNVERIFIED
+- 自然语音对话（VAD/打断/回声/流式 STT・LLM・TTS/性能预算）——已实现，见 §6。
+- 数字人状态机与降级（音视频同步/口型/首帧/卡死/静态降级）——已实现，见 §6。
+- 零配置首次使用（自动检测/三预设/分步引导/示例数字人）——已实现，见 §6。
+- 知识引用与记忆可信度（引用定位/失效冲突/记忆候选/作用域/遗忘/导出）——已实现，见 §6。
+- 隐私/费用/数据流透明（远程总开关/数据流向/越界同意/API Key 安全存储）——已实现，见 §6。
+- 可观测/离线/故障自愈（correlation ID/诊断 ZIP/离线队列/熔断/回滚/备份恢复）——已实现，见 §6。
 
-### P2（体验）
-- 无障碍（VoiceOver/全键盘/焦点/对比度/reduced motion/字幕）。
-- 本地化（简中/英文完整）与统一设计系统（token/主题/状态/toast 分级）。
-
----
-
-## 8. 旧报告时效性声明
-
-以下报告生成时间早于当前 HEAD `31a7be2`（2026-08-06T03:17Z），**针对旧 commit，仅作历史证据**，不代表当前代码状态：
-
-| 报告 | 生成时间 | 结论（历史） |
-|------|----------|--------------|
-| `output/mock-provider-smoke.md` | 2026-08-05T08:11Z | 全部 True（SSRF 引入前） |
-| `output/release-sign-notarize.md` | 2026-08-05T08:11Z | FAIL 2 / UNVERIFIED 4 |
-| `output/provider-acceptance.md` | 历史 | UNVERIFIED |
-| `output/provider-readiness.md` | 历史 | UNVERIFIED |
-| `output/release-readiness.md` | 历史 | UNVERIFIED |
-| `output/readiness-baseline.md` | 历史 | 基线差异清单 |
-
-以上报告需在当前 commit 用重新执行的命令重新生成，或明确继续标为历史证据。
+### P2（体验）— 均已 IMPLEMENTED，单测 VERIFIED
+- 无障碍（VoiceOver/全键盘/焦点/对比度/reduced motion/字幕）——已实现，见 §6。
+- 本地化（简中/英文完整）与统一设计系统（token/主题/状态/toast 分级）——已实现，见 §6。
 
 ---
 
-## 9. 结论
+## 8. 测试矩阵（Task 16，近真实/真实）
 
-- 当前主分支强制 CI **全绿**（run `31071581206`，6/6 job 通过），P0-1（mock smoke SSRF）已修复并锁定。
+> 新增 `scripts/run-test-matrix.sh` + `scripts/test-matrix/*`（16 项），含回归测试 `scripts/test_test_matrix.sh`（11 断言，全部通过）。
+> 报告：`output/test-matrix.json` + `output/test-matrix.md`（含环境/commit/逐项状态/证据路径/耗时）。
+
+实测（本机，HEAD `5d8b238` 之前的 `07e5af7` 运行，代表当前测试矩阵执行结果）：
+
+| 状态 | 数量 |
+|---|---|
+| PASS | 9 |
+| FAIL | 0 |
+| UNVERIFIED | 7 |
+
+- **9 个 PASS（近真实，真实执行 sidecar/repos/clients）**：`sidecar-crash`、`no-network`、`db-migration`、`session-pagination`（51+ 分页）、`multi-session`、`multi-human`、`offline-queue`、`disk-full`、`permission`（麦克风/摄像头设备检测）。
+- **7 个 UNVERIFIED（需真实硬件/凭证/分发端点，诚实标记，绝不伪造 PASS）**：`clean-mac-first-install`、`intel-mac`、`overlay-upgrade`、`downgrade-block`、`update-failure`、`airpods-headset`、`system-sleep-wake`。
+- 退出码 0；回归测试 `scripts/test_test_matrix.sh` 11 断言通过。
+
+---
+
+## 9. 旧报告时效性声明
+
+以下报告生成时间早于当前 HEAD `5d8b238`，**针对旧 commit，仅作历史证据**，不代表当前代码状态：
+
+| 报告 | 说明（历史） |
+|------|--------------|
+| `output/provider-acceptance.md` | 早期真实路径验收（旧 commit） |
+| `output/release-sign-notarize.md` | Release closure FAIL 2 / UNVERIFIED 4（旧 commit） |
+| `output/release-readiness.md` | 发布就绪（历史） |
+| `output/provider-readiness.md` | 真实 provider 就绪（历史） |
+| `output/readiness-baseline.md` | readiness 基线差异（历史） |
+| `output/dmg-smoke.md` | DMG 冒烟（历史） |
+| `output/mock-provider-smoke.md` | mock smoke（SSRF 引入前，历史） |
+| `output/mock-provider-smoke-x86_64.md` | x86_64 mock smoke（历史） |
+| `output/release-acceptance.md` | 发布验收（历史） |
+| `output/release-closure.md` | 发布闭环（历史） |
+| `output/production-convergence-summary.md` | 生产收敛汇总（历史） |
+| `output/release-closure-natural-conversation-summary.md` | 发布闭环·自然对话汇总（历史） |
+
+**当前 commit（5d8b238）证据**（重新生成/最新执行）：
+- `output/test-matrix.json` + `output/test-matrix.md`（Task 16 测试矩阵，9 PASS / 0 FAIL / 7 UNVERIFIED）
+- `output/provider-acceptance-mock-harness.json` + `.md`（mock-harness 验收，20 PASS / 6 UNVERIFIED）
+- `output/provenance.json` + `output/SHA256SUMS` + `output/sbom.cyclonedx.json`（commit `5d8b238`）
+
+---
+
+## 10. 结论
+
+- 当前主分支强制 CI **全绿**（run `31079789194`，7/7 job 通过），P0-1（mock smoke SSRF）已修复并锁定。
 - 代码质量门禁（ruff/mypy/pytest=521/coverage ~88%/Rust/frontend/依赖安全）全部通过；无高危可利用依赖漏洞（1 个 glib unsound 仅影响 Linux 目标）。
-- **新增（Task 4）**：依赖 SBOM（CycloneDX 1.5，三大栈）已 **VERIFIED**——`scripts/generate-sbom.sh` 存在并有 `scripts/test_sbom_generator.sh` 回归测试，已接入 `release-gate` job 并作为独立 artifact 上传（实测 python=31 / rust=588 / javascript=179 / total=798）。
-- macOS 签名/公证、真实 Provider、真实发布/更新闭环均 **UNVERIFIED**，缺凭证/服务/硬件（见 §5、§4、§8）；签名/公证/stapling/universal-DMG/升级回滚仍保持 UNVERIFIED，需 5.2 节所列凭证与手动步骤方可在真实 macOS 上验证。
+- **Task 16 测试矩阵**：9 PASS / 0 FAIL / 7 UNVERIFIED，`output/test-matrix.json/.md` 为当前 commit 证据。
+- **Task 17 最终交付**：文档、SBOM、provenance、SHA256、完成声明均已产出并对应 commit `5d8b238`。
+- P1/P2 全部能力已 **IMPLEMENTED** 且有对应单测；但**代码实现 ≠ 真实硬件/服务验证**——真实 LLM/STT/TTS/avatar/Feishu、macOS 签名/公证、干净 Mac 首装、真实分发升级回滚均为 **UNVERIFIED**（见 §4、§5、§6、§8）。
 - 当前状态：**Release Candidate → 未达生产可发布**。剩余 P0：P0-2（macOS 发布闭环）、P0-3（真实 Provider 验收）需凭证/服务方可验证，缺凭证环境下保持 UNVERIFIED。

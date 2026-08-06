@@ -1,38 +1,42 @@
 {
   "app": "VoxStudio",
   "version": "0.1.0",
-  "commit_sha": "a72ad23c6cef108f895d977845dafdddfb89a055",
-  "build_time_utc": "2026-08-05T21:11:27Z",
-  "sign_status": "undetermined",
+  "commit_sha": "5d8b2384f6e9410009753f78cb0a26b0357911b8",
+  "build_time_utc": "2026-08-06T07:26:26Z",
+  "sign_status": "unverified",
+  "verification": {
+    "ran": false,
+    "reason": "real codesign/spctl/notarytool verification could not run (no built artifacts / no credentials)"
+  },
   "artifact_count": 7,
-  "missing_artifact_count": 1,
+  "missing_artifact_count": 4,
   "artifacts": [
+    {
+      "path": "/Volumes/Extra/CodeProj/数字人/apps/desktop/src-tauri/binaries/digital-human-sidecar-aarch64-apple-darwin",
+      "sha256": "9e24c65c927aa78b8725d45aa5fda29830e440f71d6e6a653ba8a7dbc838ddc0"
+    },
     {
       "path": "/Volumes/Extra/CodeProj/数字人/apps/desktop/src-tauri/binaries/digital-human-sidecar-universal-apple-darwin",
       "sha256": "98cf052749fc3a24318ec86fa192946ee158f61dcc7b6f1d095704b171a72a4a"
-    },
-    {
-      "path": "/Volumes/Extra/CodeProj/数字人/apps/desktop/src-tauri/target/universal-apple-darwin/release/bundle/dmg/VoxStudio_0.1.0_universal.dmg",
-      "sha256": "32587bdb8b3de95535ef1a1cb9a386d775270848a1e92184cda49484ebf1466f"
-    },
-    {
-      "path": "/Volumes/Extra/CodeProj/数字人/apps/desktop/src-tauri/target/universal-apple-darwin/release/bundle/macos/VoxStudio.app/Contents/MacOS/digital-human-sidecar",
-      "sha256": "8490821ccfed9d59a6441d1488829e39856118531885173e5f3cc39423b55d93"
-    },
-    {
-      "path": "/Volumes/Extra/CodeProj/数字人/apps/desktop/src-tauri/target/universal-apple-darwin/release/bundle/macos/VoxStudio.app/Contents/MacOS/voxstudio-desktop",
-      "sha256": "7428664b79a7fa1fbf9643b72850d16fc09ba9254edfc8a4ef5c3335b5950e81"
-    },
-    {
-      "path": "/Volumes/Extra/CodeProj/数字人/apps/desktop/src-tauri/target/universal-apple-darwin/release/voxstudio-desktop",
-      "sha256": "04d4ef6aecfc506275b406ac11b320345c4eebf8099503fa3ccf3bf6f48666db"
     },
     {
       "path": "/Volumes/Extra/CodeProj/数字人/output/VoxStudio-universal.dmg",
       "sha256": "32587bdb8b3de95535ef1a1cb9a386d775270848a1e92184cda49484ebf1466f"
     },
     {
-      "path": "/artifact.dmg",
+      "path": "/VoxStudio_0.1.0.dmg",
+      "sha256": null
+    },
+    {
+      "path": "/VoxStudio_0.1.0_universal.dmg",
+      "sha256": null
+    },
+    {
+      "path": "/digital-human-sidecar",
+      "sha256": null
+    },
+    {
+      "path": "/voxstudio-desktop",
       "sha256": null
     }
   ]
