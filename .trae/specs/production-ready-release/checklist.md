@@ -62,9 +62,9 @@
 - [ ] 记忆污染/错误/冲突/过期测试通过
 
 ## 阶段九：隐私与安全加固
-- [ ] 正式 threat model 覆盖 Sidecar/Bearer/base URL/飞书/临时文件/数据库/更新/诊断包
-- [ ] SSRF 防护、本地网络策略、重定向防护
-- [ ] 统一脱敏；secret leakage 测试通过；日志不泄露密钥
+- [x] 正式 threat model 覆盖 Sidecar/Bearer/base URL/飞书/临时文件/数据库/更新/诊断包
+- [x] SSRF 防护、本地网络策略、重定向防护（`ssrf.py` 单测 23 例）
+- [x] 统一脱敏；secret leakage 测试通过；日志不泄露密钥（`sanitize.py` 单测 15 例）
 - [ ] 临时文件随机名/最小权限/确定性清理；启动清理遗留
 - [ ] 诊断包预览与包含项
 - [ ] Keychain 密钥管理；SBOM/许可清单；更新包完整签名验证测试
@@ -80,7 +80,7 @@
 - [ ] Apple Silicon 真机验收；Intel 支持有据或删除含糊承诺
 
 ## 阶段十二：收口
-- [ ] 复核最终完成标准全部满足或如实标注 UNVERIFIED
-- [ ] 每阶段输出规定格式（审计/根因/文件/实现/测试/命令/结果/未验证/风险/下一任务）
-- [ ] 生成 `PRODUCTION_READINESS_REPORT.md`（含是否允许发布的明确结论）
+- [x] 复核最终完成标准全部满足或如实标注 UNVERIFIED（见 `PRODUCTION_READINESS_REPORT.md`）
+- [x] 每阶段输出规定格式（审计/根因/文件/实现/测试/命令/结果/未验证/风险/下一任务）
+- [x] 生成 `PRODUCTION_READINESS_REPORT.md`（含是否允许发布的明确结论）
 - [ ] 全部变更提交并推送 `origin/main`

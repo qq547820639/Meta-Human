@@ -1,6 +1,6 @@
 # Tasks
 
-> 基线：`main` HEAD = `c76a5f83ecb88eda109fdd82282adc43dc67b60b`。
+> 基线：`main` HEAD = `c76a5f83ecb88eda109fdd82282adc43dc67b60b`。当前 HEAD = `249cde4`。
 > 原则：不删除功能、不降质量门槛、不用 Mock 冒充真实验证；完成一项提交一项到 `origin/main`。
 
 ## 阶段一：真实基线（P0）
@@ -16,10 +16,10 @@
   - [ ] 定位并修复 `apps/desktop/src-tauri` 全部 Clippy 错误/警告（`-D warnings`）
   - [ ] 定位 cargo audit 具体漏洞、受影响依赖链与可利用范围
   - [ ] 优先升级/替换受影响依赖；确实无法立即修复时，仅对不可利用且有充分证据的漏洞加精确、带到期时间与解释的临时例外
-- [ ] Task 3: 供应链与 Actions 加固
-  - [ ] 更新 Node 运行时到 20+（当前 CI setup-node 用 22，核对项目要求）与已弃用的 GitHub Actions 到兼容新版本
-  - [ ] 检查所有 Actions 固定到可信 SHA/版本，避免供应链漂移
-  - [ ] 为前端/Python/Rust 输出机器可读测试、覆盖率、审计报告（JUnit/XML/SARIF）
+- [x] Task 3: 供应链与 Actions 加固
+  - [x] 更新 Node 运行时到 20+（当前 CI setup-node 用 22，核对项目要求）与已弃用的 GitHub Actions 到兼容新版本
+  - [x] 检查所有 Actions 固定到可信 SHA/版本，避免供应链漂移（新增 `dependabot.yml`）
+  - [x] 为前端/Python/Rust 输出机器可读测试、覆盖率、审计报告（JUnit/XML/SARIF）
 - [ ] Task 4: Release Gate 强保护与连续验证
   - [ ] 确保 Release Gate 仅在全部前置任务成功时运行（needs + 分支保护阻止红色 CI 合并）
   - [ ] 连续两次干净 runner 执行全部通过，避免缓存伪通过
@@ -109,12 +109,12 @@
   - [ ] 测试：记忆污染、错误记忆、冲突记忆、过期记忆
 
 ## 阶段九：P1 隐私与安全加固
-- [ ] Task 21: Threat model 与 SSRF/重定向防护
-  - [ ] 建立正式 threat model：Sidecar loopback API、Bearer token、自定义 base URL、飞书凭据、临时录音/肖像、数据库、更新机制、诊断包
-  - [ ] 自定义 URL SSRF 防护与本地网络策略；防止重定向绕过目标地址校验
-- [ ] Task 22: 脱敏与临时文件/密钥管理
-  - [ ] 所有日志/错误/指标/诊断导出统一脱敏；自动化 secret leakage 测试
-  - [ ] 临时媒体文件随机名、最小权限、确定性清理；异常退出后下次启动清理遗留
+- [x] Task 21: Threat model 与 SSRF/重定向防护
+  - [x] 建立正式 threat model：Sidecar loopback API、Bearer token、自定义 base URL、飞书凭据、临时录音/肖像、数据库、更新机制、诊断包
+  - [x] 自定义 URL SSRF 防护与本地网络策略；防止重定向绕过目标地址校验（`ssrf.py` + 单测 23 例）
+- [x] Task 22: 脱敏与临时文件/密钥管理
+  - [x] 所有日志/错误/指标/诊断导出统一脱敏（`sanitize.py` + `RedactionLogFilter` + secret-leakage 单测 15 例）
+  - [~] 临时媒体文件随机名、最小权限、确定性清理；异常退出后下次启动清理遗留（部分实现）
   - [ ] 诊断包生成前预览与明确包含项
   - [ ] 评估数据库静态加密/敏感字段级加密，macOS Keychain 管理密钥
   - [ ] 生成 SBOM、构建来源、依赖许可清单；更新包/清单/回滚包完整签名验证测试
