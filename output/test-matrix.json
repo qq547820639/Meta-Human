@@ -1,0 +1,141 @@
+{
+  "schema": "voxstudio-test-matrix@1",
+  "generated_at": "2026-08-06T07:07:20Z",
+  "environment": {
+    "commit": "07e5af7ef91ad7ef262e37f9fc668f4670a89332",
+    "branch": "main",
+    "version": "0.1.0",
+    "os": {
+      "product_version": "27.0",
+      "build_version": "26A5388g",
+      "arch": "arm64"
+    },
+    "machine": "27.0 (26A5388g) arm64",
+    "toolchain": {
+      "node": "v26.5.1",
+      "pnpm": "11.9.0",
+      "uv": "uv 0.11.28 (ebf0f43d7 2026-07-07 aarch64-apple-darwin)",
+      "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14)"
+    }
+  },
+  "summary": {
+    "total": 16,
+    "pass": 9,
+    "fail": 0,
+    "unverified": 7
+  },
+  "items": [
+    {
+      "name": "sidecar-crash",
+      "category": "crash",
+      "status": "PASS",
+      "evidence": "output/test-matrix/evidences/sidecar-crash.log",
+      "runtime_ms": 2918
+    },
+    {
+      "name": "no-network",
+      "category": "network",
+      "status": "PASS",
+      "evidence": "output/test-matrix/evidences/no-network.log",
+      "runtime_ms": 7510
+    },
+    {
+      "name": "db-migration",
+      "category": "migration",
+      "status": "PASS",
+      "evidence": "output/test-matrix/evidences/db-migration.log",
+      "runtime_ms": 160
+    },
+    {
+      "name": "session-pagination",
+      "category": "session",
+      "status": "PASS",
+      "evidence": "output/test-matrix/evidences/session-pagination.log",
+      "runtime_ms": 271
+    },
+    {
+      "name": "multi-session",
+      "category": "session",
+      "status": "PASS",
+      "evidence": "output/test-matrix/evidences/multi-session.log",
+      "runtime_ms": 205
+    },
+    {
+      "name": "multi-human",
+      "category": "device",
+      "status": "PASS",
+      "evidence": "output/test-matrix/evidences/multi-human.log",
+      "runtime_ms": 238
+    },
+    {
+      "name": "offline-queue",
+      "category": "network",
+      "status": "PASS",
+      "evidence": "output/test-matrix/evidences/offline-queue.log",
+      "runtime_ms": 2452
+    },
+    {
+      "name": "disk-full",
+      "category": "disk",
+      "status": "PASS",
+      "evidence": "output/test-matrix/evidences/disk-full.log",
+      "runtime_ms": 116
+    },
+    {
+      "name": "permission",
+      "category": "permission",
+      "status": "PASS",
+      "evidence": "output/test-matrix/evidences/permission.log",
+      "runtime_ms": 666
+    },
+    {
+      "name": "clean-mac-first-install",
+      "category": "install",
+      "status": "UNVERIFIED",
+      "evidence": "output/test-matrix/evidences/clean-mac-first-install.log",
+      "runtime_ms": 0
+    },
+    {
+      "name": "intel-mac",
+      "category": "install",
+      "status": "UNVERIFIED",
+      "evidence": "output/test-matrix/evidences/intel-mac.log",
+      "runtime_ms": 0
+    },
+    {
+      "name": "overlay-upgrade",
+      "category": "upgrade",
+      "status": "UNVERIFIED",
+      "evidence": "output/test-matrix/evidences/overlay-upgrade.log",
+      "runtime_ms": 0
+    },
+    {
+      "name": "downgrade-block",
+      "category": "upgrade",
+      "status": "UNVERIFIED",
+      "evidence": "output/test-matrix/evidences/downgrade-block.log",
+      "runtime_ms": 0
+    },
+    {
+      "name": "update-failure",
+      "category": "upgrade",
+      "status": "UNVERIFIED",
+      "evidence": "output/test-matrix/evidences/update-failure.log",
+      "runtime_ms": 0
+    },
+    {
+      "name": "airpods-headset",
+      "category": "device",
+      "status": "UNVERIFIED",
+      "evidence": "output/test-matrix/evidences/airpods-headset.log",
+      "runtime_ms": 0
+    },
+    {
+      "name": "system-sleep-wake",
+      "category": "power",
+      "status": "UNVERIFIED",
+      "evidence": "output/test-matrix/evidences/system-sleep-wake.log",
+      "runtime_ms": 0
+    }
+  ]
+}

@@ -30,3 +30,7 @@ output/playwright/
 output/sbom.cyclonedx.json
 output/conversation-budget-report.json
 output/conversation-budget-report.md
+# Test-matrix runner generated runtime artifacts (regenerated each run)
+output/test-matrix/.results.tsv
+output/test-matrix/*.sqlite3
+output/test-matrix/evidences/
