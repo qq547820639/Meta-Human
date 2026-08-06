@@ -262,6 +262,9 @@ def main() -> int:
             "VOXSTUDIO_FEISHU_ACCESS_TOKEN": "mock-token",
             "VOXSTUDIO_FEISHU_SPACE_ID": "space-1",
             "VOXSTUDIO_FEISHU_BASE_URL": provider_url,
+            # Mock harness opts in to loopback for the remote/Feishu providers;
+            # production never sets this flag.
+            "VOXSTUDIO_ALLOW_LOOPBACK_PROVIDERS": "1",
         }
     )
 

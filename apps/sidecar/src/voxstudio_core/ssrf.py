@@ -24,6 +24,7 @@ canonically resolve to loopback/link-local are also rejected by name.
 from __future__ import annotations
 
 import ipaddress
+import os
 from urllib.parse import urlparse
 
 # Loopback (IPv4 + IPv6) — a remote provider must never dial the machine itself.
@@ -114,12 +115,26 @@ def is_denied_remote_target(host: str) -> bool:
     return classify_host(host) in {"loopback", "link-local", "multicast", "unspecified"}
 
 
+def remote_loopback_opt_in() -> bool:
+    """Return ``True`` when the operator explicitly opted in to loopback targets.
+
+    Reads the ``VOXSTUDIO_ALLOW_LOOPBACK_PROVIDERS`` environment flag. This is
+    intended for self-contained mock/test harnesses that point the remote and
+    Feishu providers at an in-process ``127.0.0.1`` server. Production defaults
+    to deny so a compromised config cannot turn the sidecar into an SSRF proxy
+    against the local machine.
+    """
+    return os.environ.get("VOXSTUDIO_ALLOW_LOOPBACK_PROVIDERS") == "1"
+
+
 def validate_remote_base_url(base_url: str, *, allow_loopback: bool = False) -> str:
     """Validate an outbound provider ``base_url`` against the SSRF policy.
 
     Returns the normalized ``base_url`` when the target is acceptable, or raises
     ``ValueError`` with a user-readable reason otherwise. ``allow_loopback`` is
-    for the local-provider path, which legitimately dials ``127.0.0.1``.
+    for the local-provider path, which legitimately dials ``127.0.0.1``. The
+    ``VOXSTUDIO_ALLOW_LOOPBACK_PROVIDERS`` env opt-in additionally permits
+    loopback for mock/test harnesses when the explicit flag is absent.
     """
     normalized = base_url.strip().rstrip("/")
     parsed = urlparse(normalized)
@@ -130,7 +145,7 @@ def validate_remote_base_url(base_url: str, *, allow_loopback: bool = False) -> 
 
     classification = classify_host(parsed.hostname)
     if classification == "loopback":
-        if allow_loopback:
+        if allow_loopback or remote_loopback_opt_in():
             return normalized
         raise ValueError("base_url must not target a loopback host")
     if classification in {"link-local", "multicast", "unspecified"}:

@@ -15,6 +15,7 @@ from voxstudio_core.providers.remote_gpu import RemoteGpuConfig
 from voxstudio_core.ssrf import (
     classify_host,
     is_denied_remote_target,
+    remote_loopback_opt_in,
     validate_remote_base_url,
 )
 
@@ -83,6 +84,43 @@ def test_validate_remote_base_url_allows_loopback_when_flagged() -> None:
         validate_remote_base_url("http://127.0.0.1:11434", allow_loopback=True)
         == "http://127.0.0.1:11434"
     )
+
+
+def test_remote_loopback_opt_in_defaults_to_deny(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("VOXSTUDIO_ALLOW_LOOPBACK_PROVIDERS", raising=False)
+    assert remote_loopback_opt_in() is False
+    with pytest.raises(ValueError, match="must not target a loopback host"):
+        validate_remote_base_url("http://127.0.0.1:11434")
+
+
+def test_remote_loopback_opt_in_allows_loopback_when_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("VOXSTUDIO_ALLOW_LOOPBACK_PROVIDERS", "1")
+    assert remote_loopback_opt_in() is True
+    assert (
+        validate_remote_base_url("http://127.0.0.1:11434")
+        == "http://127.0.0.1:11434"
+    )
+    # Link-local / cloud metadata / multicast stay denied even when loopback is
+    # opted in — the env switch only relaxes the loopback class.
+    for url in (
+        "http://169.254.169.254/",
+        "http://0.0.0.0/",
+        "http://224.0.0.1/",
+    ):
+        with pytest.raises(ValueError, match="must not target"):
+            validate_remote_base_url(url)
+
+
+def test_remote_gpu_config_allows_loopback_when_opt_in_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("VOXSTUDIO_ALLOW_LOOPBACK_PROVIDERS", "1")
+    config = RemoteGpuConfig(base_url="http://127.0.0.1:12345")
+    assert config.base_url == "http://127.0.0.1:12345"
 
 
 def test_validate_remote_base_url_accepts_public_and_private() -> None:

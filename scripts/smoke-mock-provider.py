@@ -173,6 +173,12 @@ def main() -> int:
             "VOXSTUDIO_FEISHU_ACCESS_TOKEN": "mock-token",
             "VOXSTUDIO_FEISHU_SPACE_ID": "space-1",
             "VOXSTUDIO_FEISHU_BASE_URL": provider_url,
+            # This harness legitimately points the remote/Feishu providers at an
+            # in-process 127.0.0.1 mock server. Explicitly opt in to loopback so
+            # the SSRF policy (which denies loopback for outbound providers by
+            # default) does not reject the mock endpoints. Production never sets
+            # this flag.
+            "VOXSTUDIO_ALLOW_LOOPBACK_PROVIDERS": "1",
         }
     )
     database = PROJECT_ROOT / "output" / "mock-smoke.sqlite3"
