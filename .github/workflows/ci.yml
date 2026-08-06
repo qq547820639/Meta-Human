@@ -208,6 +208,18 @@ jobs:
           name: frontend-artifacts
           path: .
 
+      # tauri.conf.json declares the sidecar as externalBin, so tauri-build
+      # validates that binaries/digital-human-sidecar-<triple> exists. The
+      # `sidecar` job builds it; restore the executable bit that download-artifact strips.
+      - name: Download sidecar binary
+        uses: actions/download-artifact@v4
+        with:
+          name: sidecar-binary
+          path: apps/desktop/src-tauri/binaries/
+
+      - name: Restore sidecar executable bit
+        run: chmod +x apps/desktop/src-tauri/binaries/digital-human-sidecar-*
+
       - name: Set up Rust (stable + fmt + clippy)
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -276,10 +288,11 @@ jobs:
 
       - name: cargo audit (Rust)
         # actions-rust-lang/audit@v1 depends on a Python 'requests' helper that
-        # is missing on the runner; run cargo-audit directly instead.
+        # is missing on the runner; run cargo-audit directly instead. cargo-audit
+        # has no --manifest-path, so run it from the crate directory.
         run: |
           cargo install cargo-audit --locked
-          cargo audit --manifest-path apps/desktop/src-tauri/Cargo.toml
+          cd apps/desktop/src-tauri && cargo audit
         timeout-minutes: 15
 
   # ---------------------------------------------------------------------------
