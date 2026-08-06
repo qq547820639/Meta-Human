@@ -31,6 +31,7 @@ from voxstudio_core.providers.openai_compatible import (
     OpenAICompatibleClient,
 )
 from voxstudio_core.providers.remote_gpu import RemoteGpuClient, RemoteGpuConfig
+from voxstudio_core.ssrf import validate_remote_base_url
 
 ProviderType = Literal[
     "ollama",
@@ -549,6 +550,21 @@ async def _probe_connection(
     timeout_seconds: float,
     transport: httpx.AsyncBaseTransport | None = None,
 ) -> VerifyStep:
+    # SSRF policy: never dial loopback/link-local (cloud metadata), multicast or
+    # reserved targets during verification, even when the user supplied a custom
+    # endpoint. Local-model verification is allowed to reach loopback because the
+    # request carries an explicit model and the local provider is loopback-only by
+    # default; the probe here is a generic reachability check, so we reject the
+    # denied classes and let the caller's local path handle loopback explicitly.
+    try:
+        validate_remote_base_url(endpoint, allow_loopback=True)
+    except ValueError as error:
+        return VerifyStep(
+            id="connection",
+            label="连接服务",
+            status=StepStatus.FAIL,
+            detail=f"服务地址被安全策略拒绝：{error}",
+        )
     started = time.monotonic()
     try:
         async with httpx.AsyncClient(

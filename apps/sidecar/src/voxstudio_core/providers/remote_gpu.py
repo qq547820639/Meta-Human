@@ -1,8 +1,9 @@
 from dataclasses import dataclass
-from urllib.parse import urlparse
 
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
+
+from voxstudio_core.ssrf import validate_remote_base_url
 
 
 class EmptyEnrollmentError(ValueError):
@@ -40,13 +41,11 @@ class RemoteGpuConfig(BaseModel):
     @field_validator("base_url")
     @classmethod
     def normalize_base_url(cls, value: str) -> str:
-        normalized = value.strip().rstrip("/")
-        parsed = urlparse(normalized)
-        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
-            raise ValueError("base_url must be an http(s) URL")
-        if parsed.username is not None or parsed.password is not None:
-            raise ValueError("base_url must not contain credentials")
-        return normalized
+        # Remote providers are outbound by nature, so apply the SSRF policy:
+        # loopback, link-local (incl. cloud metadata), multicast and reserved
+        # targets are rejected outright. Private RFC1918 (LAN) hosts remain
+        # allowed for operators hosting services on the local network.
+        return validate_remote_base_url(value)
 
     @field_validator(
         "voice_enroll_path",

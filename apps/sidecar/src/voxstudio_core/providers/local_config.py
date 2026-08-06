@@ -3,6 +3,17 @@ from urllib.parse import urlparse
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from voxstudio_core.ssrf import classify_host
+
+
+def _is_loopback_host(host: str) -> bool:
+    if host.casefold() == "localhost":
+        return True
+    try:
+        return ip_address(host).is_loopback
+    except ValueError:
+        return False
+
 
 class LocalProviderConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -28,16 +39,21 @@ class LocalProviderConfig(BaseModel):
 
     @model_validator(mode="after")
     def guard_loopback_host(self) -> "LocalProviderConfig":
-        if self.allow_remote:
-            return self
         host = urlparse(self.base_url).hostname or ""
-        if host.casefold() == "localhost":
+        # Loopback is always a valid local-provider target (Ollama etc. run on
+        # 127.0.0.1). Determining whether the host is loopback needs the IP form.
+        if _is_loopback_host(host):
             return self
-        try:
-            if ip_address(host).is_loopback:
-                return self
-        except ValueError:
-            pass
-        raise ValueError(
-            "local base_url must use a loopback host unless allow_remote is true"
-        )
+        if not self.allow_remote:
+            raise ValueError(
+                "local base_url must use a loopback host unless allow_remote is true"
+            )
+        # Remote opt-in still must not dial link-local (cloud metadata),
+        # multicast or reserved targets — SSRF protection holds even when the
+        # operator explicitly allows remote base URLs.
+        classification = classify_host(host)
+        if classification in {"link-local", "multicast", "unspecified"}:
+            raise ValueError(
+                "base_url must not target a link-local, multicast or reserved address"
+            )
+        return self

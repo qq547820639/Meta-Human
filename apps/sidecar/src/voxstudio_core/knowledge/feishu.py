@@ -3,6 +3,8 @@ from dataclasses import dataclass
 import httpx
 from pydantic import SecretStr
 
+from voxstudio_core.ssrf import validate_remote_base_url
+
 
 class FeishuApiError(RuntimeError):
     pass
@@ -42,7 +44,9 @@ class FeishuClient:
         self._refresh_token = refresh_token
         self._app_id = app_id
         self._app_secret = app_secret
-        self._base_url = base_url.rstrip("/")
+        # Feishu is an outbound remote service; apply the SSRF policy so a
+        # mis-configured base_url cannot point at loopback/link-local/metadata.
+        self._base_url = validate_remote_base_url(base_url).rstrip("/")
         self._page_size = page_size
         self._timeout = timeout_seconds
         self._transport = transport
