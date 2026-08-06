@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { ApiError, copyRequestId } from "../../api/client";
+import type { AvatarSession } from "./avatarClient";
 import { clearConversationMessages } from "./conversationManagementClient";
 import type { ConversationSummary } from "./conversationManagementClient";
 import {
@@ -40,7 +41,7 @@ import { useVoiceRecording } from "./useVoiceRecording";
 
 export interface ConversationControllerProps {
   readonly portraitPath?: string | null;
-  readonly streamUrl?: string | null;
+  readonly session?: AvatarSession | null;
   readonly initialConversationId?: string | null;
   readonly humanId?: string | null;
   readonly humanName?: string | null;
@@ -63,7 +64,7 @@ export interface ConversationControllerProps {
  * The component (`ConversationWorkspace`) is a thin renderer over this hook.
  */
 export function useConversationController({
-  streamUrl,
+  session,
   initialConversationId,
   humanId,
   humanName,
@@ -164,6 +165,9 @@ export function useConversationController({
     naturalMode,
     micCapabilities,
     naturalSttAvailable,
+    recommendedMode,
+    micDenied,
+    micDeniedReason,
     enableNatural,
     disableNatural,
     setNaturalMode,
@@ -196,7 +200,7 @@ export function useConversationController({
   } = useAvatarPresentation({
     ui,
     dispatch,
-    streamUrl,
+    session,
     onMetrics,
     listening: naturalActive,
   });
@@ -573,6 +577,9 @@ export function useConversationController({
     naturalMode,
     micCapabilities,
     naturalSttAvailable,
+    recommendedMode,
+    micDenied,
+    micDeniedReason,
     enableNatural,
     disableNatural,
     setNaturalMode,

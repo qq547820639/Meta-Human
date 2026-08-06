@@ -16,6 +16,11 @@
  *   reconnecting -> the stream dropped and we are waiting to rebuild it
  *   fallback     -> no playable stream; the static portrait is shown while the
  *                   text answer and audio are preserved (answer is never lost)
+ *   auth-expired -> the stream session's auth / token expired (401/403); the
+ *                   portrait is shown but the stream cannot resume until a new
+ *                   session is started
+ *   stream-expired -> the stream / session was reported expired (no longer
+ *                   playable); the portrait is shown
  *   error        -> an unrecoverable presentation error
  *
  * The machine is intentionally small and pure so it can be unit-tested without
@@ -33,6 +38,8 @@ export type PresentationStage =
   | "playing"
   | "reconnecting"
   | "fallback"
+  | "auth-expired"
+  | "stream-expired"
   | "error";
 
 /** Live stream is on screen; otherwise the static portrait is shown. */
@@ -70,6 +77,10 @@ export type PresentationAction =
   | { readonly type: "PRESENT_RECONNECTED" }
   /** Give up reconnecting and show the static portrait fallback. */
   | { readonly type: "PRESENT_FALLBACK" }
+  /** The stream session's auth / token expired (401/403); not reconnectable. */
+  | { readonly type: "PRESENT_AUTH_EXPIRED" }
+  /** The stream / session was reported expired; not reconnectable. */
+  | { readonly type: "PRESENT_STREAM_EXPIRED" }
   /** An unrecoverable presentation error occurred. */
   | { readonly type: "PRESENT_ERROR" }
   /** Switching human / conversation: tear the presentation down. */
@@ -104,6 +115,10 @@ export function presentationLifecycleReducer(
       return state;
     case "PRESENT_FALLBACK":
       return { stage: "fallback", mode: "static", reconnectAttempts: state.reconnectAttempts };
+    case "PRESENT_AUTH_EXPIRED":
+      return { stage: "auth-expired", mode: "static", reconnectAttempts: state.reconnectAttempts };
+    case "PRESENT_STREAM_EXPIRED":
+      return { stage: "stream-expired", mode: "static", reconnectAttempts: state.reconnectAttempts };
     case "PRESENT_ERROR":
       return { stage: "error", mode: "static", reconnectAttempts: state.reconnectAttempts };
     case "PRESENT_RESET":

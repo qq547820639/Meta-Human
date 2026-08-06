@@ -131,6 +131,17 @@ describe("naturalConversationReducer — legal transitions", () => {
     expect(state.inputMode).toBe("push_to_talk");
     expect(isNaturalActive(state)).toBe(false);
   });
+
+  it("accepts and preserves text_only as an input mode", () => {
+    const state = apply(
+      initialNaturalConversationState,
+      { type: "MODE_SET", mode: "text_only" },
+      { type: "START" },
+      { type: "STOP" },
+    );
+    expect(state.inputMode).toBe("text_only");
+    expect(state.phase).toBe("idle");
+  });
 });
 
 describe("naturalConversationReducer — illegal transitions rejected", () => {
@@ -215,6 +226,16 @@ describe("naturalStatusLabel", () => {
         ),
       ),
     ).toBe("正在转写…");
+    expect(
+      naturalStatusLabel(
+        apply(
+          initialNaturalConversationState,
+          { type: "START" },
+          { type: "SPEECH_END" },
+          { type: "INTERIM", text: "待确认文本" },
+        ),
+      ),
+    ).toBe("等待确认…");
     expect(
       naturalStatusLabel(
         apply(

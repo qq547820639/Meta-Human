@@ -38,6 +38,12 @@ tracks changes since the last tagged release.
   记忆写入规则可配置。
 - **隐私与 UX**：跟随系统深色/浅色模式（`useTheme.ts` / `themes.css`）；错误提示统一
   「发生了什么 / 可能原因 / 下一步操作」结构；破坏性操作二次确认。
+- **自然对话 UX 收口**：麦克风权限被拒时展示具体权限/原因与可直接打开的系统设置入口
+  （`micSettings.ts`）；新增「纯文字」输入模式，与「自然」「按住说话」共三模式并按设备
+  能力自动推荐；区分「正在生成声音 / 正在说话 / 等待确认 / 已降级为文字」等真实事件状态；
+  转写文本支持清空（撤销）；avatar/TTS 不可用时给出可执行下一步。
+- **验收指标**：新增 `percentileLatencies`（P50/P95 分位计算），基于真实采样计算，未测量
+  不伪造达标。
 
 ## [0.1.0] - 2026-08-05
 
@@ -53,4 +59,4 @@ tracks changes since the last tagged release.
 - 无障碍与键盘体验、全局焦点样式与 reduced-motion。
 - 本地/远程 provider 与飞书知识接入、结构化长期记忆。
 
-[0.1.0]: https://github.com/example/voxstudio/releases/tag/v0.1.0
+[0.1.0]: https://github.com/qq547820639/Meta-Human/releases/tag/v0.1.0

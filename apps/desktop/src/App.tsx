@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import type { DigitalHumanData } from "./api/contracts";
 import ConversationWorkspace from "./features/conversation/ConversationWorkspace";
+import { useAvatarSession } from "./features/conversation/useAvatarSession";
 import CreationFlow, { type CreationMode } from "./features/creation/CreationFlow";
 import DigitalHumanManagement from "./features/manage/DigitalHumanManagement";
 import ReadinessGate from "./features/readiness/ReadinessGate";
@@ -64,11 +65,19 @@ function AppInner() {
         name: restore.defaultHuman.name,
         portraitPath: restore.defaultHuman.portraitPath ?? null,
         streamUrl: null,
-        avatarId: null,
-        voiceId: null,
+        avatarId: restore.defaultHuman.avatarId ?? null,
+        voiceId: restore.defaultHuman.voiceId ?? null,
       });
     }
   }, [canRestore, restore.defaultHuman, selection, selection.selectedHumanId]);
+
+  // Own the live-stream session for the restore / management paths. The
+  // selected human's identity drives a real session start (cancellable and
+  // bounded); the conversation workspace renders the resulting stream.
+  const avatarSession = useAvatarSession({
+    avatarId: selection.selected.avatarId,
+    voiceId: selection.selected.voiceId,
+  });
 
   const needsUserHelp =
     snapshot !== null &&
@@ -197,6 +206,7 @@ function AppInner() {
               restore.defaultHuman?.portraitPath ??
               null
             }
+            session={avatarSession.session}
             humanName={selection.selected.name}
             humanId={selection.selected.id}
             initialConversationId={restore.recentConversation?.id ?? null}

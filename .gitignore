@@ -15,6 +15,8 @@ __pycache__/
 
 .idea/
 .vscode/
+.codebuddy/
+.coverage
 
 # Build artifacts / binaries
 apps/desktop/src-tauri/binaries/

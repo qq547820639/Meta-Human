@@ -35,6 +35,8 @@ export interface DigitalHumanSummary {
   readonly name: string;
   readonly status: string;
   readonly portraitPath?: string | null;
+  readonly avatarId?: string | null;
+  readonly voiceId?: string | null;
   readonly createdAt?: string | null;
 }
 
@@ -106,6 +108,8 @@ function normalizeHuman(body: Partial<DigitalHumanData>): DigitalHumanSummary {
     name: body.name ?? "",
     status: body.creation_status ?? "",
     portraitPath: body.portrait_path ?? null,
+    avatarId: body.avatar_id ?? null,
+    voiceId: body.voice_id ?? null,
     createdAt: body.created_at ?? null,
   };
 }

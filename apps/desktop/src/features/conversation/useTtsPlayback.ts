@@ -50,6 +50,15 @@ export function useTtsPlayback({
       .forEach((node) => {
         node.pause();
       });
+    // Couple the audio turn to the avatar's speaking action: pausing speech
+    // also pauses the avatar video so the mouth / action does not keep going
+    // while the answer is silent.
+    const video = document.querySelector<HTMLVideoElement>(
+      ".conversation-avatar-stream",
+    );
+    if (video) {
+      video.pause();
+    }
     dispatch({ type: "TTS_PAUSED" });
   }
 

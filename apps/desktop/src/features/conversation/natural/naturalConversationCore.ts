@@ -76,8 +76,12 @@ export interface NaturalConversationDeps {
   readonly onReplyDelivered: (query: string, text: string) => void;
   /** Receives each flushed sentence to be sent to the TTS engine in order. */
   readonly onTtsSentence?: (sentence: string) => void;
-  /** Whether the platform provides echo cancellation (from probeMicCapabilities). */
-  readonly echoCancellation?: boolean;
+  /**
+   * Whether the platform provides echo cancellation (AEC). May be a boolean or
+   * a getter so the value can update after the engine is built (the capability
+   * probe resolves asynchronously, after the engine is created lazily).
+   */
+  readonly echoCancellation?: boolean | (() => boolean);
   readonly onMetrics: (metrics: Partial<ConversationMetrics>) => void;
   readonly onStateChange: (state: NaturalConversationState) => void;
   readonly maxReconnectAttempts?: number;
@@ -126,7 +130,7 @@ export function createNaturalConversationEngine(
   const reconnectDelay = deps.reconnectDelayMs ?? ((attempt: number) => attempt * 500);
   // Playback-aware echo gate: suppresses suspected echo bursts right after the
   // assistant starts speaking, while still letting a real user utterance barge in.
-  const echoGate = createEchoGate({ echoCancellation: deps.echoCancellation ?? false });
+  const echoGate = createEchoGate({ echoCancellation: deps.echoCancellation });
 
   function dispatch(action: NaturalConversationAction): void {
     state = naturalConversationReducer(state, action);

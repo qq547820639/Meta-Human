@@ -5,6 +5,7 @@ import type {
   ConversationUiAction,
   ConversationUiState,
 } from "./conversationStateMachine";
+import type { AvatarSession } from "./avatarClient";
 import {
   deriveStaticPose,
   initialPresentationState,
@@ -24,7 +25,8 @@ import {
 export interface UseAvatarPresentationDeps {
   readonly ui: ConversationUiState;
   readonly dispatch: React.Dispatch<ConversationUiAction>;
-  readonly streamUrl?: string | null;
+  /** The active avatar stream session (its `streamUrl` drives the `<video>`). */
+  readonly session?: AvatarSession | null;
   readonly onMetrics?: (metrics: Partial<ConversationMetrics>) => void;
   /** Provider capability probe; unsupported capabilities are never sent. */
   readonly capabilities?: PresentationCapabilities;
@@ -67,12 +69,13 @@ export interface UseAvatarPresentationResult {
 export function useAvatarPresentation({
   ui,
   dispatch,
-  streamUrl,
+  session,
   onMetrics,
   capabilities = noPresentationCapabilities,
   request,
   listening = false,
 }: UseAvatarPresentationDeps): UseAvatarPresentationResult {
+  const streamUrl = session?.streamUrl ?? null;
   const [presentation, dispatchPresentation] = useReducer(
     presentationLifecycleReducer,
     undefined,
@@ -84,19 +87,33 @@ export function useAvatarPresentation({
   const [rebuildNonce, setRebuildNonce] = useState(0);
   const reconnectTimeoutRef = useRef<number | null>(null);
   const streamStartRef = useRef(0);
-  const prevStreamRef = useRef<string | null | undefined>(streamUrl);
+  const sessionStartRef = useRef(0);
+  const reconnectStartRef = useRef(0);
+  const prevSessionKeyRef = useRef(`${session?.sessionId ?? ""}:${streamUrl ?? ""}`);
   const presentationRef = useRef(presentation);
   presentationRef.current = presentation;
 
-  // A brand-new stream URL begins a fresh live presentation.
+  // A brand-new session (or stream URL) begins a fresh live presentation.
   useEffect(() => {
-    if (streamUrl === prevStreamRef.current) {
+    const key = `${session?.sessionId ?? ""}:${streamUrl ?? ""}`;
+    if (key === prevSessionKeyRef.current) {
       return;
     }
-    prevStreamRef.current = streamUrl;
+    prevSessionKeyRef.current = key;
     streamStartRef.current = performance.now();
+    sessionStartRef.current = performance.now();
+    reconnectStartRef.current = 0;
     dispatchPresentation({ type: "PRESENT_START" });
-  }, [streamUrl]);
+  }, [session?.sessionId, streamUrl]);
+
+  // Surface the session's honest terminal states onto the presentation.
+  useEffect(() => {
+    if (session?.status === "auth-expired") {
+      dispatchPresentation({ type: "PRESENT_AUTH_EXPIRED" });
+    } else if (session?.status === "expired") {
+      dispatchPresentation({ type: "PRESENT_STREAM_EXPIRED" });
+    }
+  }, [session?.status]);
 
   // Clear any pending reconnect timer on unmount.
   useEffect(
@@ -133,11 +150,21 @@ export function useAvatarPresentation({
       onMetrics?.({ avatarReadyMs: performance.now() - streamStartRef.current });
       streamStartRef.current = 0;
     }
+    if (sessionStartRef.current !== 0) {
+      onMetrics?.({
+        avatarSessionToFirstFrameMs: performance.now() - sessionStartRef.current,
+      });
+      sessionStartRef.current = 0;
+    }
     dispatch({ type: "AVATAR_STARTED" });
     dispatchPresentation({ type: "PRESENT_LOADED" });
   }
 
   function onVideoPlay(): void {
+    if (reconnectStartRef.current !== 0) {
+      onMetrics?.({ avatarReconnectMs: performance.now() - reconnectStartRef.current });
+      reconnectStartRef.current = 0;
+    }
     dispatch({ type: "AVATAR_PLAYING" });
     dispatchPresentation({ type: "PRESENT_PLAYING" });
   }
@@ -157,6 +184,7 @@ export function useAvatarPresentation({
     dispatch({ type: "AVATAR_FAILED" });
     const reconnectAttempts = presentationRef.current.reconnectAttempts;
     if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+      reconnectStartRef.current = performance.now();
       dispatchPresentation({ type: "PRESENT_RECONNECT" });
       scheduleReconnect();
     } else {

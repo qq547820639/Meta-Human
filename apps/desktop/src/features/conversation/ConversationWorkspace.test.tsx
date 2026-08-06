@@ -284,7 +284,14 @@ describe("ConversationWorkspace", () => {
     const { container } = render(
       <ConversationWorkspace
         portraitPath="/tmp/portrait.jpg"
-        streamUrl="https://gpu.example.com/live/stream-1"
+        session={{
+          sessionId: "sess-1",
+          streamUrl: "https://gpu.example.com/live/stream-1",
+          avatarId: "a1",
+          voiceId: "v1",
+          status: "ready",
+          createdAt: Date.now(),
+        }}
       />,
     );
     fireEvent.change(screen.getByLabelText("问题"), {

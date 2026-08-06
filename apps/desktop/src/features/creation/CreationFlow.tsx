@@ -2,6 +2,7 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 
 import type { DigitalHumanData } from "../../api/contracts";
 import ConversationWorkspace from "../conversation/ConversationWorkspace";
+import { useAvatarSession } from "../conversation/useAvatarSession";
 import BuildProgress from "./BuildProgress";
 import { CreationMode, useCreationWizard } from "./useCreationWizard";
 import { CapturePermission } from "./captureClient";
@@ -89,6 +90,11 @@ export default function CreationFlow({
     handleCancelBuild,
     handleRetryBuild,
   } = wizard;
+
+  // The creation wizard already established the live stream (via
+  // `handleStartConversation`); wrap it into a session for the workspace. No
+  // auto-start here — the wizard owns the explicit "开始对话" trigger.
+  const { session } = useAvatarSession({ preset: avatarStream });
 
   return (
     <>
@@ -258,7 +264,7 @@ export default function CreationFlow({
       {conversationStarted ? (
         <ConversationWorkspace
           portraitPath={resolvedPortraitPath}
-          streamUrl={avatarStream?.streamUrl ?? null}
+          session={session}
         />
       ) : null}
     </>

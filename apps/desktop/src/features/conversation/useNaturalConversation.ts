@@ -18,16 +18,22 @@ import {
 } from "./natural/naturalConversationStateMachine";
 import {
   createBrowserSttSession,
-  createMockSttSession,
+  createSidecarSttSession,
   hasBrowserStt,
+  hasSidecarStt,
   type SttSessionFactory,
 } from "./natural/stt";
+import {
+  createTtsPlaybackQueue,
+  type TtsPlaybackQueue,
+} from "./natural/ttsPlaybackQueue";
 import {
   createBrowserVadAdapter,
   noMicCapabilities,
   probeMicCapabilities,
   type MicCapabilities,
   type VadAdapter,
+  VadStartError,
 } from "./natural/vadAdapter";
 
 export interface UseNaturalConversationProps {
@@ -55,6 +61,14 @@ export interface UseNaturalConversationResult {
   readonly naturalMode: NaturalInputMode;
   readonly micCapabilities: MicCapabilities;
   readonly naturalSttAvailable: boolean;
+  /** Recommended default input mode from real device capability probing. */
+  readonly recommendedMode: NaturalInputMode;
+  /** True when the browser rejected microphone permission (real VAD error). */
+  readonly micDenied: boolean;
+  /** Human-readable reason for the permission denial, if any. */
+  readonly micDeniedReason: string | null;
+  /** The sentence currently being spoken (from the reply chunker), if any. */
+  readonly naturalSentence: string;
   enableNatural: (mode: NaturalInputMode) => Promise<void>;
   disableNatural: () => Promise<void>;
   setNaturalMode: (mode: NaturalInputMode) => void;
@@ -90,10 +104,16 @@ export function useNaturalConversation({
   const [micCapabilities, setMicCapabilities] = useState<MicCapabilities>(
     noMicCapabilities,
   );
+  const [naturalSentence, setNaturalSentence] = useState("");
+  const [micDenied, setMicDenied] = useState(false);
+  const [micDeniedReason, setMicDeniedReason] = useState<string | null>(null);
 
   const engineRef = useRef<NaturalConversationHandle | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const ttsQueueRef = useRef<TtsPlaybackQueue | null>(null);
   const humanIdRef = useRef<string | null | undefined>(humanId);
+  const micCapabilitiesRef = useRef(micCapabilities);
+  micCapabilitiesRef.current = micCapabilities;
 
   // Latest-callback refs so the engine always reads fresh values/actions.
   const getConversationIdRef = useRef(getConversationId);
@@ -128,29 +148,28 @@ export function useNaturalConversation({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [humanId]);
 
-  // Build the engine lazily (once per mount).
+  // Build the engine lazily (once per mount). The strict-order TTS queue and
+  // the engine reference each other, so create both in the same block: the
+  // queue is only ever used inside `playAudio`/`stopAudio`, which run during a
+  // reply — always after both are assigned.
   if (engineRef.current === null) {
+    let ttsQueue: TtsPlaybackQueue | null = null;
     const engine = createNaturalConversationEngine({
       vad: vadFactory ? vadFactory() : createBrowserVadAdapter(),
       sttFactory:
         sttFactory ??
         ((callbacks) =>
-          createBrowserSttSession(callbacks) ?? createMockSttSession(callbacks)),
+          createBrowserSttSession(callbacks) ?? createSidecarSttSession(callbacks)),
       streamReply: streamReplyOverride ?? buildStreamReply(),
       cancelGeneration: (generationId) => stopGenerating(generationId),
       playAudio: (audioBase64) => {
-        const node = new Audio(
-          `data:audio/wav;base64,${audioBase64}`,
-        );
-        audioRef.current = node;
-        node.onended = () => engine.onAssistantAudioEnded();
-        node.onerror = () => engine.onAssistantAudioEnded();
-        void node.play().catch(() => {
-          // Autoplay may be blocked; fall back to silent text turn.
-          engine.onAssistantAudioEnded();
-        });
+        // Real sidecar TTS audio is enqueued and played strictly in order; the
+        // queue fires ASSISTANT_ENDED (via onDrained) once every chunk played.
+        ttsQueue?.enqueue(audioBase64);
       },
       stopAudio: () => {
+        // Interrupt/cancel: stop the current chunk and drop all pending ones.
+        ttsQueue?.clear();
         const node = audioRef.current;
         audioRef.current = null;
         if (node) {
@@ -189,22 +208,86 @@ export function useNaturalConversation({
           },
         ]);
       },
+      onTtsSentence: (sentence) => setNaturalSentence(sentence),
+      echoCancellation: () => micCapabilitiesRef.current.echoCancellation,
       onMetrics: (m) => onMetricsRef.current(m),
       onStateChange: setNaturalState,
     });
     engineRef.current = engine;
+    ttsQueue = createTtsPlaybackQueue({
+      onDrained: () => engine.onAssistantAudioEnded(),
+      onChunkError: () => {
+        // A chunk failed to play — skip it and let the queue continue. The
+        // engine still treats the turn as speaking until the queue drains.
+      },
+    });
+    ttsQueueRef.current = ttsQueue;
   }
+
+  const naturalSttAvailable =
+    hasBrowserStt() || hasSidecarStt() || !!sttFactory;
+
+  // Recommended default input mode from real device capability probing: no mic
+  // capability -> plain text; mic but no STT -> hold-to-talk; otherwise natural.
+  const recommendedMode: NaturalInputMode = !micCapabilities.getUserMedia
+    ? "text_only"
+    : naturalSttAvailable
+      ? "natural"
+      : "push_to_talk";
+
+  // "正在生成声音" (TTS voice being generated) is surfaced only from a real
+  // event: the reply chunker flushed a sentence to the TTS queue while the
+  // phase is still `thinking` (i.e. audio has not started playing yet). None of
+  // these labels are faked with timers.
+  const naturalStatus =
+    naturalState.phase === "thinking" && naturalSentence.trim().length > 0
+      ? "正在生成声音…"
+      : naturalStatusLabel(naturalState);
 
   return {
     naturalState,
     naturalActive: isNaturalActive(naturalState),
-    naturalStatus: naturalStatusLabel(naturalState),
+    naturalStatus,
     naturalTranscript: naturalState.transcript,
     transcriptFinal: naturalState.transcriptFinal,
     naturalMode: naturalState.inputMode,
     micCapabilities,
-    naturalSttAvailable: hasBrowserStt() || !!sttFactory,
-    enableNatural: (mode) => engineRef.current?.enable(mode) ?? Promise.resolve(),
+    naturalSttAvailable,
+    recommendedMode,
+    micDenied,
+    micDeniedReason,
+    naturalSentence,
+    enableNatural: async (mode) => {
+      const engine = engineRef.current;
+      if (!engine) {
+        return;
+      }
+      // text_only is a plain-text (composer) mode: it must not open the mic or
+      // pretend to "listen". Just record the mode and stay idle.
+      if (mode === "text_only") {
+        setMicDenied(false);
+        setMicDeniedReason(null);
+        engine.setMode("text_only");
+        return;
+      }
+      setMicDenied(false);
+      setMicDeniedReason(null);
+      try {
+        await engine.enable(mode);
+      } catch (caught) {
+        if (caught instanceof VadStartError) {
+          if (caught.reason === "permission-denied") {
+            setMicDenied(true);
+            setMicDeniedReason(caught.message);
+          }
+          // Reset the machine to idle so the UI never sits in "listening"
+          // without an actually-open microphone.
+          await engine.disable();
+        }
+        // Other VAD start errors degrade silently (the caller falls back to
+        // push-to-talk / text), matching the pre-existing behavior.
+      }
+    },
     disableNatural: () => engineRef.current?.disable() ?? Promise.resolve(),
     setNaturalMode: (mode) => engineRef.current?.setMode(mode),
     retryNatural: () => engineRef.current?.retry() ?? Promise.resolve(),
@@ -233,6 +316,7 @@ function buildStreamReply(): NaturalReplyStreamer {
     signal,
     onGenerationId,
     onFirstToken,
+    onText,
     onAudio,
   }) => {
     let errorMessage = "";
@@ -245,7 +329,12 @@ function buildStreamReply(): NaturalReplyStreamer {
       signal,
       events: {
         onGenerationStarted: (id) => onGenerationId(id),
-        onToken: () => onFirstToken(),
+        onToken: (text) => {
+          // Real incremental text tokens feed the reply chunker so complete
+          // sentences flush to the strict-order TTS queue in sequence.
+          onFirstToken();
+          onText?.(text);
+        },
         onAudio: (base64) => {
           audioReceived = true;
           onAudio(base64);

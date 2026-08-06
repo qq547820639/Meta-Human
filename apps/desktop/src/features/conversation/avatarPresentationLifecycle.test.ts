@@ -122,6 +122,30 @@ describe("presentationLifecycleReducer — unified digital-human lifecycle", () 
     expect(state.mode).toBe("static");
   });
 
+  it("maps an auth-expired session to the static auth-expired stage", () => {
+    const busy = apply(
+      initialPresentationState,
+      { type: "PRESENT_START" },
+      { type: "PRESENT_LOADED" },
+      { type: "PRESENT_PLAYING" },
+    );
+    const state = apply(busy, { type: "PRESENT_AUTH_EXPIRED" });
+    expect(state.stage).toBe("auth-expired");
+    expect(state.mode).toBe("static");
+  });
+
+  it("maps a stream-expired session to the static stream-expired stage", () => {
+    const busy = apply(
+      initialPresentationState,
+      { type: "PRESENT_START" },
+      { type: "PRESENT_LOADED" },
+      { type: "PRESENT_PLAYING" },
+    );
+    const state = apply(busy, { type: "PRESENT_STREAM_EXPIRED" });
+    expect(state.stage).toBe("stream-expired");
+    expect(state.mode).toBe("static");
+  });
+
   it("PRESENT_RESET tears the presentation down to static/idle", () => {
     const busy = apply(
       initialPresentationState,

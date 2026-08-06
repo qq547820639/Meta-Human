@@ -1,5 +1,6 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 
+import type { AvatarSession } from "./avatarClient";
 import ConfirmDialog from "../../ui/ConfirmDialog";
 import ConversationManagement from "./ConversationManagement";
 import ConversationTimeline from "./ConversationTimeline";
@@ -8,11 +9,12 @@ import NaturalConversationBar from "./NaturalConversationBar";
 import RecoveryBanner from "./RecoveryBanner";
 import { formatMetricsLabel } from "./conversationMetrics";
 import { suggestedQuestions } from "./conversationModel";
+import { openMicrophoneSettings } from "./natural/micSettings";
 import { useConversationController } from "./useConversationController";
 
 interface ConversationWorkspaceProps {
   readonly portraitPath?: string | null;
-  readonly streamUrl?: string | null;
+  readonly session?: AvatarSession | null;
   readonly initialConversationId?: string | null;
   /** Id of the selected digital human; used to stop the previous human's
    * audio / stream when the selection changes. */
@@ -32,15 +34,16 @@ interface ConversationWorkspaceProps {
  */
 export default function ConversationWorkspace({
   portraitPath,
-  streamUrl,
+  session,
   initialConversationId,
   humanId,
   humanName,
   modelName,
 }: ConversationWorkspaceProps) {
+  const streamUrl = session?.streamUrl ?? null;
   const controller = useConversationController({
     portraitPath,
-    streamUrl,
+    session,
     initialConversationId,
     humanId,
     humanName,
@@ -122,6 +125,9 @@ export default function ConversationWorkspace({
     naturalTranscript,
     naturalMode,
     naturalSttAvailable,
+    recommendedMode,
+    micDenied,
+    micDeniedReason,
     naturalState,
     enableNatural,
     disableNatural,
@@ -242,6 +248,9 @@ export default function ConversationWorkspace({
           naturalTranscript={naturalTranscript}
           naturalMode={naturalMode}
           naturalSttAvailable={naturalSttAvailable}
+          recommendedMode={recommendedMode}
+          micDenied={micDenied}
+          micDeniedReason={micDeniedReason}
           naturalState={naturalState}
           onEnableNatural={() => void enableNatural(naturalMode)}
           onDisableNatural={() => void disableNatural()}
@@ -250,6 +259,7 @@ export default function ConversationWorkspace({
           onTranscriptEdit={onTranscriptEdit}
           onTranscriptConfirm={onTranscriptConfirm}
           onInterrupt={interruptNatural}
+          onOpenMicSettings={() => openMicrophoneSettings()}
         />
         {streaming ? (
           <button type="button" onClick={() => void handleStop()}>

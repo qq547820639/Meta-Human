@@ -43,8 +43,11 @@ export type NaturalConversationPhase =
   | "reconnecting"
   | "error";
 
-/** How the user drives the mic. `natural` = VAD auto; `push_to_talk` = hold. */
-export type NaturalInputMode = "natural" | "push_to_talk";
+/**
+ * How the user drives the conversation. `natural` = VAD auto; `push_to_talk` =
+ * hold-to-talk; `text_only` = no mic, plain text (degraded to the composer).
+ */
+export type NaturalInputMode = "natural" | "push_to_talk" | "text_only";
 
 export interface NaturalConversationState {
   readonly phase: NaturalConversationPhase;
@@ -374,7 +377,9 @@ export function naturalStatusLabel(state: NaturalConversationState): string {
     case "listening":
       return state.userSpeaking ? "聆听中…" : "正在聆听";
     case "transcribing":
-      return "正在转写…";
+      // An editable transcript is on screen and awaiting the user's confirm.
+      // Empty means the finalization STT session is still winding down.
+      return state.transcript.trim() ? "等待确认…" : "正在转写…";
     case "thinking":
       return "正在思考…";
     case "speaking":

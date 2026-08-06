@@ -15,6 +15,25 @@ import {
   useAvatarPresentation,
   type UseAvatarPresentationDeps,
 } from "./useAvatarPresentation";
+import type { AvatarSession } from "./avatarClient";
+
+function session(streamUrl: string | null): AvatarSession {
+  return {
+    sessionId: "sess-1",
+    streamUrl,
+    avatarId: "a1",
+    voiceId: "v1",
+    status: "ready",
+    createdAt: Date.now(),
+  };
+}
+
+/** Preserves the old `streamUrl` shorthand for the presentation tests. */
+function live(
+  streamUrl: string,
+): Omit<UseAvatarPresentationDeps, "ui" | "dispatch"> {
+  return { session: session(streamUrl) };
+}
 
 function useHarness(props: Omit<UseAvatarPresentationDeps, "ui" | "dispatch">) {
   const [ui, dispatch] = useReducer(
@@ -48,7 +67,7 @@ function driveToFallback(hook: { current: ReturnType<typeof useHarness> }) {
 describe("useAvatarPresentation — unified presentation lifecycle", () => {
   it("starts live when a stream URL is provided and advances through buffering/playing", () => {
     const hook = renderHook((props) => useHarness(props), {
-      initialProps: { streamUrl: "https://gpu.example.com/live/1" },
+      initialProps: live("https://gpu.example.com/live/1"),
     });
     expect(hook.result.current.presentation.stage).toBe("loading");
     expect(hook.result.current.presentation.mode).toBe("live");
@@ -71,7 +90,7 @@ describe("useAvatarPresentation — unified presentation lifecycle", () => {
 
   it("cleanup resets the presentation to static idle (switch human / conversation)", () => {
     const hook = renderHook((props) => useHarness(props), {
-      initialProps: { streamUrl: "https://gpu.example.com/live/1" },
+      initialProps: live("https://gpu.example.com/live/1"),
     });
     act(() => hook.result.current.onVideoLoadedData());
     act(() => hook.result.current.onVideoPlay());
@@ -84,7 +103,7 @@ describe("useAvatarPresentation — unified presentation lifecycle", () => {
   it("falls back to the static portrait after the stream keeps failing while keeping the answer", () => {
     vi.useFakeTimers();
     const hook = renderHook((props) => useHarness(props), {
-      initialProps: { streamUrl: "https://gpu.example.com/live/1" },
+      initialProps: live("https://gpu.example.com/live/1"),
     });
     driveToFallback(hook.result);
     // Only the live video degrades to the static portrait; the answer (and any
@@ -97,7 +116,7 @@ describe("useAvatarPresentation — unified presentation lifecycle", () => {
   it("rebuilds a live stream when the page becomes visible again after a fallback", () => {
     vi.useFakeTimers();
     const hook = renderHook((props) => useHarness(props), {
-      initialProps: { streamUrl: "https://gpu.example.com/live/1" },
+      initialProps: live("https://gpu.example.com/live/1"),
     });
     driveToFallback(hook.result);
     expect(hook.result.current.presentation.mode).toBe("static");
@@ -114,7 +133,7 @@ describe("useAvatarPresentation — unified presentation lifecycle", () => {
   it("rebuilds the stream when the network comes back online after a fallback", () => {
     vi.useFakeTimers();
     const hook = renderHook((props) => useHarness(props), {
-      initialProps: { streamUrl: "https://gpu.example.com/live/1" },
+      initialProps: live("https://gpu.example.com/live/1"),
     });
     driveToFallback(hook.result);
     expect(hook.result.current.presentation.mode).toBe("static");
@@ -129,7 +148,7 @@ describe("useAvatarPresentation — unified presentation lifecycle", () => {
   it("forwards AV sync / lip-sync / emotion only when the provider supports them", () => {
     const hook = renderHook((props) => useHarness(props), {
       initialProps: {
-        streamUrl: "https://gpu.example.com/live/1",
+        session: session("https://gpu.example.com/live/1"),
         request: { lipSync: true, emotion: true },
         capabilities: {
           audioVideoSync: true,
@@ -148,7 +167,7 @@ describe("useAvatarPresentation — unified presentation lifecycle", () => {
   it("forwards no parameters for a capability-less provider", () => {
     const hook = renderHook((props) => useHarness(props), {
       initialProps: {
-        streamUrl: "https://gpu.example.com/live/1",
+        session: session("https://gpu.example.com/live/1"),
         request: { lipSync: true, emotion: true },
         capabilities: noPresentationCapabilities,
       },

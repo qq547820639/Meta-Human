@@ -47,6 +47,8 @@ describe("restoreClient", () => {
         name: "我的数字人",
         status: "ready",
         portraitPath: "/tmp/portrait.jpg",
+        avatarId: null,
+        voiceId: null,
         createdAt: null,
       },
     });

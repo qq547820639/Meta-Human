@@ -35,6 +35,12 @@ export interface EchoGate {
    * real user barge-in (pass).
    */
   classifySpeechStart(nowMs: number): EchoVerdict;
+  /** VAD speech-starts seen while the assistant was audible (potential false triggers). */
+  readonly vadFalseTriggerCount: number;
+  /** How many of those were suppressed as suspected echo. */
+  readonly echoSuppressedCount: number;
+  /** How many passed through as a real user barge-in. */
+  readonly validBargeInCount: number;
 }
 
 export interface EchoGateOptions {
@@ -42,25 +48,44 @@ export interface EchoGateOptions {
   readonly shortBurstWindowMs?: number;
   /** ms after a suppressed burst within which a continuation passes. */
   readonly sustainGraceMs?: number;
-  /** Whether OS/hardware echo cancellation (AEC) is available. */
-  readonly echoCancellation?: boolean;
+  /**
+   * Whether OS/hardware echo cancellation (AEC) is available. May be a boolean
+   * or a getter so the value can change after the gate is created (the natural
+   * engine is built lazily, before the capability probe resolves).
+   */
+  readonly echoCancellation?: boolean | (() => boolean);
 }
 
 export function createEchoGate(options: EchoGateOptions = {}): EchoGate {
   const shortBurstWindowMs = options.shortBurstWindowMs ?? 400;
   const sustainGraceMs = options.sustainGraceMs ?? 300;
-  const echoCancellation = options.echoCancellation ?? false;
+  const readEchoCancellation = (): boolean =>
+    typeof options.echoCancellation === "function"
+      ? options.echoCancellation()
+      : (options.echoCancellation ?? false);
 
   let audible = false;
   let playbackStartMs = 0;
   let lastSuppressedAt = 0;
+  let vadFalseTriggerCount = 0;
+  let echoSuppressedCount = 0;
+  let validBargeInCount = 0;
 
   return {
     get audible() {
       return audible;
     },
     get echoCancellation() {
-      return echoCancellation;
+      return readEchoCancellation();
+    },
+    get vadFalseTriggerCount() {
+      return vadFalseTriggerCount;
+    },
+    get echoSuppressedCount() {
+      return echoSuppressedCount;
+    },
+    get validBargeInCount() {
+      return validBargeInCount;
     },
     onAssistantStarted(nowMs) {
       audible = true;
@@ -76,7 +101,9 @@ export function createEchoGate(options: EchoGateOptions = {}): EchoGate {
       }
       // With real AEC the OS already removes the assistant's own voice, so we
       // never add a suppression window on top of it.
-      if (echoCancellation) {
+      if (readEchoCancellation()) {
+        vadFalseTriggerCount += 1;
+        validBargeInCount += 1;
         return "pass";
       }
       const sincePlayback = nowMs - playbackStartMs;
@@ -84,15 +111,21 @@ export function createEchoGate(options: EchoGateOptions = {}): EchoGate {
       // speech-start within grace) is real user speech -> allow it to barge in
       // even while still inside the short-burst window.
       if (lastSuppressedAt > 0 && nowMs - lastSuppressedAt <= sustainGraceMs) {
+        vadFalseTriggerCount += 1;
+        validBargeInCount += 1;
         return "pass";
       }
       if (sincePlayback <= shortBurstWindowMs) {
         // A burst right after playback began is most likely the assistant's
         // own voice. Remember it so a continuation is treated as real speech.
         lastSuppressedAt = nowMs;
+        vadFalseTriggerCount += 1;
+        echoSuppressedCount += 1;
         return "suppress";
       }
       // Outside the echo window -> real user barge-in.
+      vadFalseTriggerCount += 1;
+      validBargeInCount += 1;
       return "pass";
     },
   };
