@@ -112,13 +112,13 @@
   - [x] 用户可见备份列表、选择备份恢复、恢复前再备份、恢复失败不破坏现有数据
 
 ## 阶段十一：P2 无障碍/本地化/一致性
-- [ ] Task 14: 无障碍与 i18n
-  - [ ] VoiceOver、全键盘、焦点顺序、modal 焦点陷阱、可见焦点、对比度
-  - [ ] reduced motion、动态字体、字幕、音频不可用文本替代、错误不只靠颜色
-  - [ ] 屏幕阅读器可读的流式状态；简中/英文完整本地化；禁止界面直显内部堆栈
-- [ ] Task 15: 设计系统
-  - [ ] spacing/typography/radius/shadow/motion token；light/dark/system 主题
-  - [ ] loading/empty/error/offline/degraded 状态；toast 与持久错误分级；危险操作统一确认
+- [x] Task 14: 无障碍与 i18n
+  - [x] VoiceOver、全键盘、焦点顺序、modal 焦点陷阱、可见焦点、对比度
+  - [x] reduced motion、动态字体、字幕、音频不可用文本替代、错误不只靠颜色
+  - [x] 屏幕阅读器可读的流式状态；简中/英文完整本地化；禁止界面直显内部堆栈
+- [x] Task 15: 设计系统
+  - [x] spacing/typography/radius/shadow/motion token；light/dark/system 主题
+  - [x] loading/empty/error/offline/degraded 状态；toast 与持久错误分级；危险操作统一确认
 
 ## 阶段十二：测试矩阵
 - [ ] Task 16: 真实/近真实测试矩阵
