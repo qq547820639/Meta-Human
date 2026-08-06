@@ -437,6 +437,16 @@ jobs:
           scripts/release-provenance.sh --output-dir output --verify-json output/verify.json
         timeout-minutes: 5
 
+      # SBOM: a CycloneDX 1.5 JSON covering the Python sidecar, Rust shell and
+      # frontend by parsing the committed lockfiles (offline + idempotent). It
+      # is a separate artifact from the SHA256/provenance outputs above and is
+      # referenced in the release audit doc.
+      - name: Generate SBOM (CycloneDX 1.5)
+        run: |
+          chmod +x scripts/generate-sbom.sh
+          scripts/generate-sbom.sh --output-dir output
+        timeout-minutes: 5
+
       - name: Upload release artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -445,6 +455,7 @@ jobs:
             output/SHA256SUMS
             output/provenance.json
             output/verify.json
+            output/sbom.cyclonedx.json
             output/VoxStudio-universal.dmg
             apps/desktop/src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
             apps/desktop/src-tauri/target/release/bundle/dmg/*.dmg

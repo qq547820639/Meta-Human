@@ -19,13 +19,13 @@
   - [x] 实现 `VOXSTUDIO_ALLOW_LOOPBACK_PROVIDERS` 显式开关（生产默认拒绝）
   - [x] smoke-mock-provider.py 设置该开关；补回归测试
   - [x] 本地复跑 pytest/ruff/mypy 全绿
-- [ ] Task 3: CI 全绿复跑与锁定
-  - [ ] 推送后复跑全部强制 job（ruff/mypy/pytest/vitest/tsc/ESLint/Rust fmt/clippy -D warnings/test/audit/frontend audit/Release gate）
-  - [ ] 修复每个真实失败根因并补回归测试
-  - [ ] 依赖漏洞优先升级；无法升级记录编号/影响/可利用性/缓解/到期时间
-  - [ ] 配置分支保护建议（必需检查失败不得合并）
-  - [ ] 增加测试抖动检测（禁止偶发失败被简单重跑掩盖）
-  - [ ] 输出所有命令与退出码
+- [x] Task 3: CI 全绿复跑与锁定
+  - [x] 推送后复跑全部强制 job（ruff/mypy/pytest/vitest/tsc/ESLint/Rust fmt/clippy -D warnings/test/audit/frontend audit/Release gate）
+  - [x] 修复每个真实失败根因并补回归测试（SSRF loopback opt-in、bash 3.2 空数组、verify-release 缺产物 FATAL）
+  - [x] 依赖漏洞升级或记录编号/影响/可利用性/缓解/到期时间（§3.1，glib unsound 仅 Linux 目标）
+  - [x] 配置分支保护建议（`docs/branch-protection.md`，必需检查失败不得合并）
+  - [x] 增加测试抖动检测（`check-test-flakiness.sh` + CI `flaky-detect` job，跑 2 遍对比）
+  - [x] 输出所有命令与退出码（ruff=0/mypy=0/pytest=521；CI run 31071581206 全绿）
 
 ## 阶段三：P0 真实 macOS 发布闭环
 - [ ] Task 4: 签名/公证/stapling 全链路

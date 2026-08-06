@@ -32,7 +32,7 @@
 | Flaky test detection | ✅ success | 侧边栏套件跑 2 遍，无不一致结果 |
 | Frontend (TS / vitest) | ✅ success | tsc / vitest / build 通过 |
 | Rust shell | ✅ success | fmt / clippy -D warnings / test 通过 |
-| Release gate | ✅ success | 构建产物 + provenance 生成；**诚实标记 UNVERIFIED**（无签名凭证） |
+| Release gate | ✅ success | 构建产物 + provenance + **SBOM** 生成；**诚实标记 UNVERIFIED**（无签名凭证） |
 
 > 结论：**当前 commit 所有强制 CI job 为绿色**，Release gate 实际执行并通过（在缺凭证环境下以 UNVERIFIED 形式）。
 > 注：`gh run list` 中显示为 `success` 的 `Dependabot Updates` run 是 dependabot 自动更新专用的合成 workflow，**不执行完整 CI**，不代表真实 CI 全绿。
@@ -55,7 +55,7 @@
 | 前端依赖漏洞 | `pnpm audit --audit-level=high` | ✅ 无已知漏洞 |
 | Python 依赖漏洞 | `uv audit --project apps/sidecar` | ✅ 无已知漏洞 |
 | Rust 依赖漏洞 | `cargo audit` | ✅ 退出码 0；**1 unsound + 17 unmaintained 告警**（见 §3.1） |
-| Release gate | `scripts/*`（CI Release gate job） | ✅ 通过（UNVERIFIED 标记） |
+| Release gate | `scripts/*`（CI Release gate job） | ✅ 通过（provenance + SBOM + UNVERIFIED 标记） |
 
 ### 3.1 Rust 依赖告警明细
 
@@ -93,6 +93,7 @@
 
 | 项 | 状态 | 证据 |
 |----|------|------|
+| 依赖 SBOM（CycloneDX 1.5） | ✅ **VERIFIED**（脚本存在 + 有回归测试） | `scripts/generate-sbom.sh` + `scripts/test_sbom_generator.sh` |
 | Developer ID Application 签名 | UNVERIFIED | 有效 identity 0 个 |
 | codesign --verify | FAIL | adhoc 签名不通过 |
 | spctl --assess（Gatekeeper） | FAIL | 会被 Gatekeeper 拦截 |
@@ -102,6 +103,31 @@
 | 正式制品上传 | UNVERIFIED / MISSING | 无 Release、无 tag |
 
 > 依据 `output/release-sign-notarize.md`（历史证据，2026-08-05）：`Release closure FAILED with 2 FAIL and 4 UNVERIFIED`。缺凭证环境下必须标 UNVERIFIED，不得误报成功。
+
+### 5.1 依赖 SBOM 生成（本任务新增，VERIFIED）
+
+- **脚本**：`scripts/generate-sbom.sh` 生成 `output/sbom.cyclonedx.json`（CycloneDX 1.5 JSON），离线解析已有的 lockfile（不做网络安装），幂等：
+  - Python sidecar：`apps/sidecar/uv.lock`（`[[package]]` → name/version）
+  - Rust shell：`apps/desktop/src-tauri/Cargo.lock`（`[[package]]` → name/version/source）
+  - Frontend：`pnpm-lock.yaml`（仅 `packages:` 段的 `name@version` 键，跳过 `snapshots:` 段）
+  - metadata 记录组件 `VoxStudio`、版本（取自 `tauri.conf.json`）、git commit SHA、build time（ISO 8601 UTC）。
+  - 任一 lockfile 缺失或某栈无组件时非零退出（fail loudly）。
+- **回归测试**：`scripts/test_sbom_generator.sh`（可执行）断言 JSON 为合法 CycloneDX（`bomFormat`/`specVersion`/`serialNumber`/`metadata.component`/`components[]`）、三大栈各 ≥1 组件、版本与 tauri.conf.json 一致。断言不弱化，缺失 lockfile 或 JSON 畸形即退出 1。
+- **CI 接入**：`release-gate` job 在 provenance 之后运行 `scripts/generate-sbom.sh`，并将 `output/sbom.cyclonedx.json` 作为独立 release artifact 上传（与 SHA256SUMS/provenance 分开，审计文档引用）。
+- 实测组件数（本机，HEAD `e3284e8`）：python=31，rust=588，javascript=179，total=798。
+
+### 5.2 需要凭证的人类手动步骤（保持 UNVERIFIED）
+
+以下项目在本机/当前 CI 环境（无凭证）保持 **UNVERIFIED**，必须由具备凭证的维护者在 macOS 上手动执行：
+
+| 项 | 所需 Secret（CI 环境变量） | 手动命令 |
+|----|---------------------------|----------|
+| Developer ID 签名 | `SIGNING_CERT`（.p12 base64）、`SIGNING_IDENTITY`（证书显示名） | `security import` 证书后运行 `scripts/sign-notarize.sh --identity <ID>` 或 `scripts/build-universal.sh`（带 `VOXSTUDIO_SIGNING_IDENTITY`） |
+| notarization + stapling | `APPLE_TEAM_ID`、`APPLE_NOTARY_API_KEY`、`APPLE_NOTARY_KEY_ID`、`APPLE_NOTARY_ISSUER` | `scripts/sign-notarize.sh`（含 `xcrun notarytool submit --wait` + `xcrun stapler staple/validate`） |
+| Universal DMG 产出 | 上述全部 | `scripts/build-universal.sh` + `scripts/release-dmg.sh` |
+| 覆盖升级 / 回滚 | `VOXSTUDIO_UPDATE_PUBKEY`（公钥）、`VOXSTUDIO_UPDATE_ENDPOINT`、`VOXSTUDIO_UPDATE_ENDPOINT_STABLE` | 在 `tauri.conf.json` 的 `plugins.updater` 填入 pubkey/endpoints 并构建 updater 制品，经真实分发端点验证升级与失败回滚 |
+
+> 诚实原则：无凭证时一律标 UNVERIFIED，绝不伪造签名/公证 PASS（见 `scripts/verify-release.sh`、`scripts/sign-notarize.sh`、`scripts/release-provenance.sh` 的 Honesty rule）。
 
 ---
 
@@ -118,6 +144,7 @@
 | macOS 签名/公证 | IMPLEMENTED（脚本） | UNVERIFIED / FAIL | `release-sign-notarize.md`（历史） |
 | 测试抖动检测 | IMPLEMENTED | VERIFIED（CI flaky-detect job 通过） | `check-test-flakiness.sh` + `ci.yml` |
 | Release gate（缺凭证） | IMPLEMENTED | VERIFIED（诚实标记 UNVERIFIED） | `ci.yml` release-gate job |
+| 依赖 SBOM（CycloneDX 1.5） | IMPLEMENTED | **VERIFIED**（脚本 + 回归测试） | `generate-sbom.sh` + `test_sbom_generator.sh` + `ci.yml` release-gate job |
 | 真实 Provider 验收 | MISSING | UNVERIFIED | 无真实服务 |
 | 自然对话（VAD/打断/回声） | 部分 | UNVERIFIED | 待深入 |
 | 数字人状态机与降级 | 部分 | UNVERIFIED | 待深入 |
@@ -181,5 +208,6 @@
 
 - 当前主分支强制 CI **全绿**（run `31071581206`，6/6 job 通过），P0-1（mock smoke SSRF）已修复并锁定。
 - 代码质量门禁（ruff/mypy/pytest=521/coverage ~88%/Rust/frontend/依赖安全）全部通过；无高危可利用依赖漏洞（1 个 glib unsound 仅影响 Linux 目标）。
-- macOS 签名/公证、真实 Provider、真实发布/更新闭环均 **UNVERIFIED**，缺凭证/服务/硬件（见 §5、§4、§8）。
+- **新增（Task 4）**：依赖 SBOM（CycloneDX 1.5，三大栈）已 **VERIFIED**——`scripts/generate-sbom.sh` 存在并有 `scripts/test_sbom_generator.sh` 回归测试，已接入 `release-gate` job 并作为独立 artifact 上传（实测 python=31 / rust=588 / javascript=179 / total=798）。
+- macOS 签名/公证、真实 Provider、真实发布/更新闭环均 **UNVERIFIED**，缺凭证/服务/硬件（见 §5、§4、§8）；签名/公证/stapling/universal-DMG/升级回滚仍保持 UNVERIFIED，需 5.2 节所列凭证与手动步骤方可在真实 macOS 上验证。
 - 当前状态：**Release Candidate → 未达生产可发布**。剩余 P0：P0-2（macOS 发布闭环）、P0-3（真实 Provider 验收）需凭证/服务方可验证，缺凭证环境下保持 UNVERIFIED。
