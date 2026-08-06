@@ -43,7 +43,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "VOXSTUDIO_DEVEL_PLACEHOLDER_INJECT_PRODUCTION_VIA_VOXSTUDIO_UPDATE_PUBKEY",
+      "pubkey": "",
       "endpoints": []
     }
   }

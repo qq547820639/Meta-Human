@@ -29,7 +29,34 @@ use url::Url;
 
 const ENV_ENDPOINT: &str = "VOXSTUDIO_UPDATE_ENDPOINT"; // beta
 const ENV_ENDPOINT_STABLE: &str = "VOXSTUDIO_UPDATE_ENDPOINT_STABLE";
-const ENV_PUBKEY: &str = "VOXSTUDIO_UPDATE_PUBKEY";
+
+/// The signature public key is injected at *build time* via the
+/// `VOXSTUDIO_UPDATE_PUBKEY` environment variable and baked into the binary
+/// with `option_env!`. This makes it safe from runtime replacement: an attacker
+/// who can set process env vars after launch cannot change which key verifies
+/// updates. A literal placeholder (the old dev marker) is never accepted.
+const PRODUCTION_PUBKEY_PLACEHOLDER: &str =
+    "VOXSTUDIO_DEVEL_PLACEHOLDER_INJECT_PRODUCTION_VIA_VOXSTUDIO_UPDATE_PUBKEY";
+
+/// Return the production signature public key configured at build time, or
+/// `None` when no real key was provided. An empty value or the known dev
+/// placeholder is treated as "not configured" so a placeholder can never be
+/// used to verify (and accept) an update.
+pub fn production_public_key_configured() -> Option<String> {
+    validated_public_key(option_env!("VOXSTUDIO_UPDATE_PUBKEY").unwrap_or(""))
+}
+
+/// Pure validation: return the key only when it is a real (non-empty,
+/// non-placeholder) value. Split out so it can be unit tested without relying
+/// on process-wide build-time env.
+fn validated_public_key(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || trimmed == PRODUCTION_PUBKEY_PLACEHOLDER {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -68,13 +95,6 @@ pub struct StagedUpdate {
 #[derive(Default)]
 pub struct UpdateState(pub Mutex<Option<StagedUpdate>>);
 
-fn env_set(name: &str) -> bool {
-    matches!(
-        std::env::var(name),
-        Ok(value) if !value.trim().is_empty()
-    )
-}
-
 /// The update endpoint URL for a channel, read from the environment.
 pub fn channel_endpoint(channel: &str) -> Option<String> {
     let variable = if channel == "beta" {
@@ -88,8 +108,9 @@ pub fn channel_endpoint(channel: &str) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
+/// True only when a real production public key was baked in at build time.
 fn signature_public_key_configured() -> bool {
-    env_set(ENV_PUBKEY)
+    production_public_key_configured().is_some()
 }
 
 /// Build a plugin `Updater` pinned to the given channel's endpoint.
@@ -343,19 +364,33 @@ mod tests {
     static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
-    fn reports_unconfigured_when_no_env_vars_are_set() {
+    fn production_key_is_rejected_when_absent_or_placeholder() {
+        // Empty / absent build-time key => not configured (fails closed).
+        assert!(validated_public_key("").is_none());
+        assert!(validated_public_key("   ").is_none());
+        // The old dev placeholder must never be accepted as a real key.
+        assert!(validated_public_key(PRODUCTION_PUBKEY_PLACEHOLDER).is_none());
+        // A real key passes through (trimmed).
+        assert_eq!(
+            validated_public_key("  dGVzdC1wdWJrZXk  ").as_deref(),
+            Some("dGVzdC1wdWJrZXk")
+        );
+    }
+
+    #[test]
+    fn reports_unconfigured_when_no_key_is_baked_in() {
         let _guard = ENV_LOCK.lock().unwrap();
-        // Sandbox the real process env so the assertion is deterministic.
+        // Sandbox the real process env so the view is deterministic.
         let saved_endpoint = std::env::var(ENV_ENDPOINT).ok();
         let saved_stable = std::env::var(ENV_ENDPOINT_STABLE).ok();
-        let saved_pubkey = std::env::var(ENV_PUBKEY).ok();
         std::env::remove_var(ENV_ENDPOINT);
         std::env::remove_var(ENV_ENDPOINT_STABLE);
-        std::env::remove_var(ENV_PUBKEY);
 
         let view = get_update_config();
-        assert!(!view.configured);
+        // The compile-time key is absent in a plain test build, so the updater
+        // reports not configured regardless of endpoint state.
         assert!(!view.signature_public_key_configured);
+        assert!(!view.configured);
         assert!(!view.update_endpoint_configured);
         assert!(!view.stable_endpoint_configured);
         assert!(!view.beta_endpoint_configured);
@@ -363,28 +398,25 @@ mod tests {
 
         restore_var(ENV_ENDPOINT, saved_endpoint);
         restore_var(ENV_ENDPOINT_STABLE, saved_stable);
-        restore_var(ENV_PUBKEY, saved_pubkey);
     }
 
     #[test]
-    fn reports_configured_when_both_key_and_an_endpoint_exist() {
+    fn reports_not_configured_with_endpoints_but_no_builtin_key() {
         let _guard = ENV_LOCK.lock().unwrap();
         let saved_stable = std::env::var(ENV_ENDPOINT_STABLE).ok();
-        let saved_pubkey = std::env::var(ENV_PUBKEY).ok();
         std::env::set_var(
             ENV_ENDPOINT_STABLE,
             "https://updates.example.com/{{target}}/{{arch}}",
         );
-        std::env::set_var(ENV_PUBKEY, "dGVzdC1wdWJrZXk");
 
         let view = get_update_config();
-        assert!(view.configured);
-        assert!(view.signature_public_key_configured);
+        // Endpoints are configured, but without a baked-in production key the
+        // updater must still report `configured = false` (fails closed).
         assert!(view.stable_endpoint_configured);
-        assert!(!view.beta_endpoint_configured);
+        assert!(!view.signature_public_key_configured);
+        assert!(!view.configured);
 
         restore_var(ENV_ENDPOINT_STABLE, saved_stable);
-        restore_var(ENV_PUBKEY, saved_pubkey);
     }
 
     #[test]

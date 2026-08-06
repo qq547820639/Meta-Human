@@ -66,13 +66,22 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Auto-detect default artifacts from the universal bundle output.
+# Auto-detect default artifacts. Prefer the universal bundle when it exists;
+# otherwise fall back to the native (arm64) release bundle so the honest
+# verification runs against whatever the release gate actually produced.
 if [[ -z "${app}" ]]; then
   app="${desktop_project}/src-tauri/target/universal-apple-darwin/release/bundle/macos/VoxStudio.app"
+  if [[ ! -d "${app}" ]]; then
+    app="${desktop_project}/src-tauri/target/release/bundle/macos/VoxStudio.app"
+  fi
 fi
 if [[ -z "${dmg}" ]]; then
   dmg="$(find "${desktop_project}/src-tauri/target/universal-apple-darwin/release/bundle/dmg" \
     -maxdepth 1 -name '*.dmg' -print -quit 2>/dev/null || true)"
+  if [[ -z "${dmg}" ]]; then
+    dmg="$(find "${desktop_project}/src-tauri/target/release/bundle/dmg" \
+      -maxdepth 1 -name '*.dmg' -print -quit 2>/dev/null || true)"
+  fi
 fi
 
 # Required tools must exist; otherwise we cannot verify anything honestly.

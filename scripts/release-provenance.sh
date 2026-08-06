@@ -95,14 +95,24 @@ build_time="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 # ---------------------------------------------------------------------------
 # Default artifact set (only existing files are used; missing ones are listed)
 # ---------------------------------------------------------------------------
+# Prefer universal artifacts when present; otherwise fall back to the native
+# (arm64) release bundle so the provenance honestly covers what the gate built.
 bundle_dmg="${desktop_project}/src-tauri/target/universal-apple-darwin/release/bundle/dmg"
+native_bundle_dmg="${desktop_project}/src-tauri/target/release/bundle/dmg"
+native_app="${desktop_project}/src-tauri/target/release/bundle/macos/VoxStudio.app"
+universal_app="${desktop_project}/src-tauri/target/universal-apple-darwin/release/bundle/macos/VoxStudio.app"
 default_artifacts=(
   "${bundle_dmg}"/VoxStudio_${version}_universal.dmg
   "${output_dir}/VoxStudio-universal.dmg"
+  "${native_bundle_dmg}"/VoxStudio_${version}.dmg
   "${desktop_project}/src-tauri/binaries/digital-human-sidecar-universal-apple-darwin"
+  "${desktop_project}/src-tauri/binaries/digital-human-sidecar-aarch64-apple-darwin"
   "${desktop_project}/src-tauri/target/universal-apple-darwin/release/voxstudio-desktop"
-  "${desktop_project}/src-tauri/target/universal-apple-darwin/release/bundle/macos/VoxStudio.app/Contents/MacOS/voxstudio-desktop"
-  "${desktop_project}/src-tauri/target/universal-apple-darwin/release/bundle/macos/VoxStudio.app/Contents/MacOS/digital-human-sidecar"
+  "${desktop_project}/src-tauri/target/release/voxstudio-desktop"
+  "${universal_app}/Contents/MacOS/voxstudio-desktop"
+  "${universal_app}/Contents/MacOS/digital-human-sidecar"
+  "${native_app}/Contents/MacOS/voxstudio-desktop"
+  "${native_app}/Contents/MacOS/digital-human-sidecar"
 )
 
 # De-duplicate: keep the first occurrence of each resolved path.

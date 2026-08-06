@@ -459,14 +459,18 @@ pub fn run() {
             app.manage(ManagedSidecar::start(app.handle(), connection_state));
             app.manage(updater::UpdateState::default());
             // Register the real updater plugin, injecting the signature public
-            // key from the environment when provided (the value in
-            // `tauri.conf.json` is a placeholder until production key injection).
-            let mut updater_builder = tauri_plugin_updater::Builder::new();
-            if let Ok(pubkey) = std::env::var("VOXSTUDIO_UPDATE_PUBKEY") {
-                if !pubkey.trim().is_empty() {
-                    updater_builder = updater_builder.pubkey(pubkey);
-                }
-            }
+            // key from the build environment. The key is baked in at compile
+            // time (`option_env!`) so it cannot be swapped at runtime. When no
+            // real key was provided at build time (e.g. unsigned dev builds),
+            // the plugin registers with no verifier and updates fail closed —
+            // the placeholder in the old config is never treated as a key.
+            let updater_builder = tauri_plugin_updater::Builder::new();
+            let updater_builder = if let Some(pubkey) = updater::production_public_key_configured()
+            {
+                updater_builder.pubkey(pubkey)
+            } else {
+                updater_builder
+            };
             app.handle().plugin(updater_builder.build())?;
             Ok(())
         })
