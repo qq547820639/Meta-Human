@@ -1,8 +1,10 @@
 # Real Provider Acceptance
 
-- 生成时间: `2026-08-05T08:10:27.196574+00:00Z`
+- 生成时间: `2026-08-06T05:11:26.665287+00:00Z`
+- 验证模式: `real`
 - 版本: `0.1.0`
-- commit SHA: `45dc2129f1965d8847f346001a7a5b27456b5c90`
+- commit SHA: `3f62a8a388cb544cd37dcf30de76bc6e6bf00d2a`
+- 操作系统: `Darwin 27.0.0`
 - CPU 架构: `arm64`
 - provider 版本: `UNKNOWN`
 
@@ -31,8 +33,8 @@
 | lifecycle.build_disconnect_resume | PASS | interrupted build job survives restart and is reported resumable (current/list_unfinished) | - |
 | lifecycle.sidecar_crash_restore | PASS | sidecar crash restore: interrupted run reopened as RECOVERING, capability rewound to PENDING | - |
 | lifecycle.gui_restart_restore | PASS | interrupted build job survives restart and is reported resumable (current/list_unfinished) | - |
-| lifecycle.old_db_upgrade_backup | PASS | old DB (migration 1) upgraded to v15 with auto-backup prepared.sqlite3.bak.15 | - |
-| lifecycle.migration_failure_recoverable | PASS | backup prepared.sqlite3.bak.15 is restorable and preserves pre-upgrade data | - |
+| lifecycle.old_db_upgrade_backup | PASS | old DB (migration 1) upgraded to v16 with auto-backup prepared.sqlite3.bak.16 | - |
+| lifecycle.migration_failure_recoverable | PASS | backup prepared.sqlite3.bak.16 is restorable and preserves pre-upgrade data | - |
 
 ## local
 

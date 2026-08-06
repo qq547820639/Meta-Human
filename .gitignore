@@ -25,5 +25,6 @@ apps/desktop/src-tauri/binaries/
 # Output build artifacts (keep docs)
 output/*.sqlite3
 output/*.log
+output/*.out
 output/playwright/
 output/sbom.cyclonedx.json

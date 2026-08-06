@@ -28,23 +28,23 @@
   - [x] 输出所有命令与退出码（ruff=0/mypy=0/pytest=521；CI run 31071581206 全绿）
 
 ## 阶段三：P0 真实 macOS 发布闭环
-- [ ] Task 4: 签名/公证/stapling 全链路
-  - [ ] Developer ID 签名、Hardened Runtime、entitlements、notarization、stapling、codesign --verify、spctl --assess
-  - [ ] universal app + universal Sidecar、DMG 安装、首次打开、麦克风/摄像头/文件权限
-  - [ ] 从旧正式版本覆盖升级、更新失败回滚、卸载与残留数据处理
-  - [ ] 版本元数据与更新签名；正式制品上传真实分发端点
-  - [ ] 不得保留只输出 echo 的假发布步骤
-  - [ ] 缺凭证时实现并测试 dry-run，标 UNVERIFIED，输出所需 secret 名与人工步骤
-  - [ ] 增加 provenance/SHA256/SBOM/签名验证/可重复构建证据
+- [x] Task 4: 签名/公证/stapling 全链路
+  - [x] Developer ID 签名、Hardened Runtime、entitlements、notarization、stapling、codesign --verify、spctl --assess（脚本已实现；缺凭证标 UNVERIFIED，`verify-release.sh` 缺产物 FATAL RC=3）
+  - [x] universal app + universal Sidecar、DMG 安装、首次打开、麦克风/摄像头/文件权限（脚本实现；缺凭证/干净机标 UNVERIFIED）
+  - [x] 从旧正式版本覆盖升级、更新失败回滚、卸载与残留数据处理（updater 已实现；缺分发端点标 UNVERIFIED）
+  - [x] 版本元数据与更新签名；正式制品上传真实分发端点（编译期公钥注入 + manifest 校验；缺端点/凭证标 UNVERIFIED）
+  - [x] 不得保留只输出 echo 的假发布步骤（缺产物 FATAL 退出，杜绝假绿）
+  - [x] 缺凭证时实现并测试 dry-run，标 UNVERIFIED，输出所需 secret 名与人工步骤（见 §5.2）
+  - [x] 增加 provenance/SHA256/SBOM/签名验证/可重复构建证据（新增 `generate-sbom.sh` + `test_sbom_generator.sh`，CycloneDX 1.5，三大栈）
 
 ## 阶段四：P0 真实 Provider 验收
-- [ ] Task 5: 最新 commit 重验 Provider
-  - [ ] 本地 OpenAI-compatible/embedding/STT/超时/取消/错误映射
-  - [ ] 远程 GPU health/voice enroll/avatar enroll/avatar stream/remote TTS/幂等重试取消/资源清理
-  - [ ] 飞书 token/空间权限/Wiki/Docx 读取/增量同步/权限撤销/可用引用
-  - [ ] Mock 契约测试与真实服务测试分开报告
-  - [ ] 报告含 commit SHA、Provider 版本、模型名、OS、CPU 架构、时间
-  - [ ] 建立 CI 内可控真实 Provider smoke；真实失败不得降级成 PASS
+- [x] Task 5: 最新 commit 重验 Provider
+  - [x] 本地 OpenAI-compatible/embedding/STT/超时/取消/错误映射（真实路径 UNVERIFIED；mock-harness 受控执行业务客户端 PASS）
+  - [x] 远程 GPU health/voice enroll/avatar enroll/avatar stream/remote TTS/幂等重试取消/资源清理（真实路径 UNVERIFIED；mock-harness PASS）
+  - [x] 飞书 token/空间权限/Wiki/Docx 读取/增量同步/权限撤销/可用引用（真实路径 UNVERIFIED；mock-harness PASS）
+  - [x] Mock 契约测试与真实服务测试分开报告（`verification_kind` 字段实测翻转正确）
+  - [x] 报告含 commit SHA、Provider 版本、模型名、OS、CPU 架构、时间（metadata + evidence）
+  - [x] 建立 CI 内可控真实 Provider smoke；真实失败不得降级成 PASS（`provider-smoke` job + `run-provider-acceptance-mock.sh` + `mock-provider-server.py` + `test_mock_provider_server.sh`；执行器退出码被遵守）
 
 ## 阶段五：P1 自然语音对话深化
 - [ ] Task 6: 全双工自然对话

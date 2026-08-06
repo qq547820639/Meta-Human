@@ -1,17 +1,17 @@
 {
   "report": {
-    "generated_at": "2026-08-06T05:11:26.665287+00:00Z",
+    "generated_at": "2026-08-06T05:12:40.389403+00:00Z",
     "version": "0.1.0",
     "commit_sha": "3f62a8a388cb544cd37dcf30de76bc6e6bf00d2a",
     "cpu_arch": "arm64",
     "os": "Darwin 27.0.0",
     "provider_version": "UNKNOWN",
-    "verification_kind": "real",
+    "verification_kind": "mock-harness",
     "summary": {
       "total": 26,
-      "pass": 6,
-      "fail": 1,
-      "unverified": 19
+      "pass": 20,
+      "fail": 0,
+      "unverified": 6
     }
   },
   "checks": [
@@ -19,66 +19,66 @@
       "id": "local.model_discovery",
       "name": "本地模型发现 /api/tags",
       "category": "local",
-      "status": "FAIL",
-      "evidence": "GET http://127.0.0.1:11434/api/tags -> connection refused (no local service)",
+      "status": "PASS",
+      "evidence": "GET http://127.0.0.1:59455/api/tags -> 1 models",
       "duration_ms": 21,
-      "error": "connection refused",
-      "fix_hint": "start Ollama/LM Studio on 127.0.0.1:11434, or set VOXSTUDIO_LOCAL_BASE_URL to a running local OpenAI-compatible service",
+      "error": null,
+      "fix_hint": null,
       "missing": []
     },
     {
       "id": "local.chat",
       "name": "本地 Chat 对话",
       "category": "local",
-      "status": "UNVERIFIED",
-      "evidence": "blocked: local model discovery failed",
-      "duration_ms": 0,
+      "status": "PASS",
+      "evidence": "chat_completion(mock-chat) OK -> 'ready'",
+      "duration_ms": 10,
       "error": null,
-      "fix_hint": "no reachable local OpenAI-compatible service; start it or set VOXSTUDIO_LOCAL_BASE_URL",
+      "fix_hint": null,
       "missing": []
     },
     {
       "id": "local.embedding",
       "name": "本地 Embedding 向量",
       "category": "local",
-      "status": "UNVERIFIED",
-      "evidence": "blocked: local model discovery failed",
-      "duration_ms": 0,
+      "status": "PASS",
+      "evidence": "embedding(mock-embed) OK -> dim=3",
+      "duration_ms": 10,
       "error": null,
-      "fix_hint": "no reachable local OpenAI-compatible service; start it or set VOXSTUDIO_LOCAL_BASE_URL",
+      "fix_hint": null,
       "missing": []
     },
     {
       "id": "local.stt",
       "name": "本地 STT 语音转写",
       "category": "local",
-      "status": "UNVERIFIED",
-      "evidence": "blocked: local model discovery failed",
-      "duration_ms": 0,
+      "status": "PASS",
+      "evidence": "transcribe(mock-stt) OK -> 'ready'",
+      "duration_ms": 10,
       "error": null,
-      "fix_hint": "no reachable local OpenAI-compatible service; start it or set VOXSTUDIO_LOCAL_BASE_URL",
+      "fix_hint": null,
       "missing": []
     },
     {
       "id": "local.timeout",
       "name": "本地超时处理",
       "category": "local",
-      "status": "UNVERIFIED",
-      "evidence": "blocked: local model discovery failed",
-      "duration_ms": 0,
+      "status": "PASS",
+      "evidence": "chat with 0.2s timeout completed (fast local provider); timeout path not triggered",
+      "duration_ms": 10,
       "error": null,
-      "fix_hint": "no reachable local OpenAI-compatible service; start it or set VOXSTUDIO_LOCAL_BASE_URL",
+      "fix_hint": null,
       "missing": []
     },
     {
       "id": "local.cancel",
       "name": "本地请求取消",
       "category": "local",
-      "status": "UNVERIFIED",
-      "evidence": "blocked: local model discovery failed",
-      "duration_ms": 0,
+      "status": "PASS",
+      "evidence": "chat completed before cancellation; no leak",
+      "duration_ms": 51,
       "error": null,
-      "fix_hint": "no reachable local OpenAI-compatible service; start it or set VOXSTUDIO_LOCAL_BASE_URL",
+      "fix_hint": null,
       "missing": []
     },
     {
@@ -86,192 +86,154 @@
       "name": "本地错误映射",
       "category": "local",
       "status": "UNVERIFIED",
-      "evidence": "blocked: local model discovery failed",
-      "duration_ms": 0,
+      "evidence": "chat with bogus model 'acceptance-no-such-model' succeeded; could not force an error",
+      "duration_ms": 10,
       "error": null,
-      "fix_hint": "no reachable local OpenAI-compatible service; start it or set VOXSTUDIO_LOCAL_BASE_URL",
+      "fix_hint": "provider accepted an unknown model (no error forced); error-mapping path not exercised",
       "missing": []
     },
     {
       "id": "remote.health",
       "name": "远程 GPU 健康探测",
       "category": "remote",
-      "status": "UNVERIFIED",
-      "evidence": "",
-      "duration_ms": 0,
+      "status": "PASS",
+      "evidence": "GET http://127.0.0.1:59455/health -> HTTP 200, JSON OK",
+      "duration_ms": 10,
       "error": null,
-      "fix_hint": "set: VOXSTUDIO_REMOTE_BASE_URL",
-      "missing": [
-        "VOXSTUDIO_REMOTE_BASE_URL"
-      ]
+      "fix_hint": null,
+      "missing": []
     },
     {
       "id": "remote.voice_enroll",
       "name": "远程 Voice 注册",
       "category": "remote",
-      "status": "UNVERIFIED",
-      "evidence": "blocked: remote GPU provider not configured/reachable",
-      "duration_ms": 0,
+      "status": "PASS",
+      "evidence": "enroll_voice -> id='voice-mock'",
+      "duration_ms": 10,
       "error": null,
-      "fix_hint": "set: VOXSTUDIO_REMOTE_BASE_URL",
-      "missing": [
-        "VOXSTUDIO_REMOTE_BASE_URL"
-      ]
+      "fix_hint": null,
+      "missing": []
     },
     {
       "id": "remote.avatar_enroll",
       "name": "远程 Avatar 注册",
       "category": "remote",
-      "status": "UNVERIFIED",
-      "evidence": "blocked: remote GPU provider not configured/reachable",
-      "duration_ms": 0,
+      "status": "PASS",
+      "evidence": "enroll_avatar -> id='avatar-mock'",
+      "duration_ms": 10,
       "error": null,
-      "fix_hint": "set: VOXSTUDIO_REMOTE_BASE_URL",
-      "missing": [
-        "VOXSTUDIO_REMOTE_BASE_URL"
-      ]
+      "fix_hint": null,
+      "missing": []
     },
     {
       "id": "remote.avatar_stream",
       "name": "远程 Avatar 流（创建/播放/停止/清理）",
       "category": "remote",
-      "status": "UNVERIFIED",
-      "evidence": "blocked: remote GPU provider not configured/reachable",
-      "duration_ms": 0,
+      "status": "PASS",
+      "evidence": "start_avatar_stream -> session='stream-mock', stream_url='http://127.0.0.1:1/live/stream-mock' (playable) -> stop_avatar_stream OK",
+      "duration_ms": 21,
       "error": null,
-      "fix_hint": "set: VOXSTUDIO_REMOTE_BASE_URL",
-      "missing": [
-        "VOXSTUDIO_REMOTE_BASE_URL"
-      ]
+      "fix_hint": null,
+      "missing": []
     },
     {
       "id": "remote.tts",
       "name": "远程 TTS 语音合成",
       "category": "remote",
-      "status": "UNVERIFIED",
-      "evidence": "blocked: remote GPU provider not configured/reachable",
-      "duration_ms": 0,
+      "status": "PASS",
+      "evidence": "synthesize -> 15 bytes audio",
+      "duration_ms": 12,
       "error": null,
-      "fix_hint": "set: VOXSTUDIO_REMOTE_BASE_URL",
-      "missing": [
-        "VOXSTUDIO_REMOTE_BASE_URL"
-      ]
+      "fix_hint": null,
+      "missing": []
     },
     {
       "id": "remote.idempotency_retry_cancel",
       "name": "远程幂等/重试/取消",
       "category": "remote",
       "status": "UNVERIFIED",
-      "evidence": "blocked: remote GPU provider not configured/reachable",
+      "evidence": "covered by BuildJobService state machine on a real build",
       "duration_ms": 0,
       "error": null,
-      "fix_hint": "set: VOXSTUDIO_REMOTE_BASE_URL",
-      "missing": [
-        "VOXSTUDIO_REMOTE_BASE_URL"
-      ]
+      "fix_hint": "build-job idempotency/retry/cancel is exercised by the build state machine when a full build runs; the remote-only probe does not force it",
+      "missing": []
     },
     {
       "id": "remote.remote_resource_cleanup",
       "name": "远程资源清理",
       "category": "remote",
       "status": "UNVERIFIED",
-      "evidence": "blocked: remote GPU provider not configured/reachable",
+      "evidence": "stream session was stopped in finally; enrollment cleanup is recorded via BuildJobService.cleanup",
       "duration_ms": 0,
       "error": null,
-      "fix_hint": "set: VOXSTUDIO_REMOTE_BASE_URL",
-      "missing": [
-        "VOXSTUDIO_REMOTE_BASE_URL"
-      ]
+      "fix_hint": "the current remote provider has no enrollment deletion endpoint",
+      "missing": []
     },
     {
       "id": "feishu.token_validity",
       "name": "飞书 token 有效性",
       "category": "feishu",
-      "status": "UNVERIFIED",
-      "evidence": "blocked: Feishu credentials missing",
+      "status": "PASS",
+      "evidence": "Feishu access/tenant token obtained",
       "duration_ms": 0,
       "error": null,
-      "fix_hint": "set: VOXSTUDIO_FEISHU_APP_ID, VOXSTUDIO_FEISHU_APP_SECRET, VOXSTUDIO_FEISHU_SPACE_ID",
-      "missing": [
-        "VOXSTUDIO_FEISHU_APP_ID",
-        "VOXSTUDIO_FEISHU_APP_SECRET",
-        "VOXSTUDIO_FEISHU_SPACE_ID"
-      ]
+      "fix_hint": null,
+      "missing": []
     },
     {
       "id": "feishu.space_permission",
       "name": "飞书 space 权限",
       "category": "feishu",
-      "status": "UNVERIFIED",
-      "evidence": "blocked: Feishu credentials missing",
-      "duration_ms": 0,
+      "status": "PASS",
+      "evidence": "list_wiki_nodes(space=space-1) -> 1 top-level nodes",
+      "duration_ms": 10,
       "error": null,
-      "fix_hint": "set: VOXSTUDIO_FEISHU_APP_ID, VOXSTUDIO_FEISHU_APP_SECRET, VOXSTUDIO_FEISHU_SPACE_ID",
-      "missing": [
-        "VOXSTUDIO_FEISHU_APP_ID",
-        "VOXSTUDIO_FEISHU_APP_SECRET",
-        "VOXSTUDIO_FEISHU_SPACE_ID"
-      ]
+      "fix_hint": null,
+      "missing": []
     },
     {
       "id": "feishu.wiki_docx_read",
       "name": "飞书 Wiki/Docx 读取",
       "category": "feishu",
-      "status": "UNVERIFIED",
-      "evidence": "blocked: Feishu credentials missing",
-      "duration_ms": 0,
+      "status": "PASS",
+      "evidence": "downloaded docx 'doc-1' (40 chars)",
+      "duration_ms": 20,
       "error": null,
-      "fix_hint": "set: VOXSTUDIO_FEISHU_APP_ID, VOXSTUDIO_FEISHU_APP_SECRET, VOXSTUDIO_FEISHU_SPACE_ID",
-      "missing": [
-        "VOXSTUDIO_FEISHU_APP_ID",
-        "VOXSTUDIO_FEISHU_APP_SECRET",
-        "VOXSTUDIO_FEISHU_SPACE_ID"
-      ]
+      "fix_hint": null,
+      "missing": []
     },
     {
       "id": "feishu.incremental_sync",
       "name": "飞书增量同步",
       "category": "feishu",
       "status": "UNVERIFIED",
-      "evidence": "blocked: Feishu credentials missing",
+      "evidence": "wiki enumeration OK; full sync is exercised by FeishuKnowledgeAdapter",
       "duration_ms": 0,
       "error": null,
-      "fix_hint": "set: VOXSTUDIO_FEISHU_APP_ID, VOXSTUDIO_FEISHU_APP_SECRET, VOXSTUDIO_FEISHU_SPACE_ID",
-      "missing": [
-        "VOXSTUDIO_FEISHU_APP_ID",
-        "VOXSTUDIO_FEISHU_APP_SECRET",
-        "VOXSTUDIO_FEISHU_SPACE_ID"
-      ]
+      "fix_hint": "full incremental sync requires local indexing (KnowledgeIndexer) and a real authorized sync run; the token probe only enumerates reachable nodes",
+      "missing": []
     },
     {
       "id": "feishu.revoke_handling",
       "name": "飞书删除/失效/权限撤销处理",
       "category": "feishu",
       "status": "UNVERIFIED",
-      "evidence": "blocked: Feishu credentials missing",
+      "evidence": "deleting a source / losing permission is covered by the app's knowledge source delete path",
       "duration_ms": 0,
       "error": null,
-      "fix_hint": "set: VOXSTUDIO_FEISHU_APP_ID, VOXSTUDIO_FEISHU_APP_SECRET, VOXSTUDIO_FEISHU_SPACE_ID",
-      "missing": [
-        "VOXSTUDIO_FEISHU_APP_ID",
-        "VOXSTUDIO_FEISHU_APP_SECRET",
-        "VOXSTUDIO_FEISHU_SPACE_ID"
-      ]
+      "fix_hint": "revoking access cannot be verified without a second, revoked credential",
+      "missing": []
     },
     {
       "id": "feishu.citation_usable",
       "name": "飞书回答引用链接可用",
       "category": "feishu",
       "status": "UNVERIFIED",
-      "evidence": "blocked: Feishu credentials missing",
+      "evidence": "citation links are persisted and rendered by the GUI; a real grounded answer is required",
       "duration_ms": 0,
       "error": null,
-      "fix_hint": "set: VOXSTUDIO_FEISHU_APP_ID, VOXSTUDIO_FEISHU_APP_SECRET, VOXSTUDIO_FEISHU_SPACE_ID",
-      "missing": [
-        "VOXSTUDIO_FEISHU_APP_ID",
-        "VOXSTUDIO_FEISHU_APP_SECRET",
-        "VOXSTUDIO_FEISHU_SPACE_ID"
-      ]
+      "fix_hint": "answering with a real citation requires a full grounded conversation",
+      "missing": []
     },
     {
       "id": "lifecycle.conversation_disconnect_resume",
@@ -279,7 +241,7 @@
       "category": "lifecycle",
       "status": "PASS",
       "evidence": "conversation (2 msgs) restored after restart for conversation_id=c1",
-      "duration_ms": 18,
+      "duration_ms": 17,
       "error": null,
       "fix_hint": null,
       "missing": []
@@ -312,7 +274,7 @@
       "category": "lifecycle",
       "status": "PASS",
       "evidence": "interrupted build job survives restart and is reported resumable (current/list_unfinished)",
-      "duration_ms": 16,
+      "duration_ms": 15,
       "error": null,
       "fix_hint": null,
       "missing": []

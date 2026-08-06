@@ -122,6 +122,67 @@ jobs:
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
+  # Controlled Provider smoke: mock-contract E2E + acceptance executor in
+  # mock-harness mode. `VOXSTUDIO_MOCK_PROVIDER=1` stamps the report as
+  # verification_kind=mock-harness so it can never be mistaken for a real pass.
+  # The acceptance executor runs against a self-contained mock provider server
+  # (`scripts/mock-provider-server.py`, torn down by the wrapper) so the local /
+  # remote / Feishu categories are genuinely exercised against a reachable
+  # loopback service. The executor's exit code is honored: any FAIL fails this
+  # job — real failures are never downgraded to PASS.
+  # ---------------------------------------------------------------------------
+  provider-smoke:
+    name: Provider smoke (mock-harness)
+    runs-on: macos-14
+    timeout-minutes: 20
+    needs: sidecar
+    env:
+      VOXSTUDIO_MOCK_PROVIDER: "1"
+      VOXSTUDIO_ALLOW_LOOPBACK_PROVIDERS: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Sync sidecar virtualenv
+        run: uv sync --project apps/sidecar --frozen
+        timeout-minutes: 5
+
+      # actions/download-artifact@v4 strips the executable bit; the mock smoke
+      # spawns the sidecar binary directly, so restore +x before running it.
+      - name: Download freshly built sidecar binary
+        uses: actions/download-artifact@v4
+        with:
+          name: sidecar-binary
+          path: apps/desktop/src-tauri/binaries/
+
+      - name: Restore sidecar executable bit
+        run: chmod +x apps/desktop/src-tauri/binaries/digital-human-sidecar-*
+
+      - name: Mock provider contract smoke (sidecar E2E)
+        run: uv run --project apps/sidecar python scripts/smoke-mock-provider.py
+        timeout-minutes: 5
+
+      - name: Provider acceptance (mock-harness mode)
+        # Starts the mock provider server, points local/remote/Feishu providers
+        # at it, runs the acceptance executor, then tears the server down.
+        run: bash scripts/run-provider-acceptance-mock.sh
+        timeout-minutes: 10
+
+      - name: Upload provider acceptance artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: provider-acceptance
+          path: |
+            output/provider-acceptance-mock-harness.json
+            output/provider-acceptance-mock-harness.md
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
   # Flaky-test detection: run the full sidecar suite twice and fail if any
   # test outcome is inconsistent between the two runs. This forbids masking
   # intermittent failures behind a simple "rerun until green".

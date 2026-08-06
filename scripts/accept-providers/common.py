@@ -93,6 +93,27 @@ def repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
+def _provider_version() -> str:
+    """Read voxstudio_core's advertised version (``__version__``) if importable,
+    else report UNKNOWN. The installed package has no ``__version__`` today, so
+    this honestly reports UNKNOWN rather than inventing a value."""
+    try:
+        import voxstudio_core as _vc  # deferred import
+
+        return getattr(_vc, "__version__", None) or "UNKNOWN"
+    except Exception:  # pragma: no cover - import failure is honest UNKNOWN
+        return "UNKNOWN"
+
+
+def verification_kind() -> str:
+    """Distinguish a controlled mock-harness pass from a real-service pass.
+
+    The CI-controlled mock smoke sets VOXSTUDIO_MOCK_PROVIDER=1; everything else
+    (including the default, no-env run) is reported as a real pass.
+    """
+    return "mock-harness" if env("VOXSTUDIO_MOCK_PROVIDER") == "1" else "real"
+
+
 def collect_metadata() -> dict[str, str]:
     root = repo_root()
 
@@ -120,12 +141,16 @@ def collect_metadata() -> dict[str, str]:
     except Exception:
         pass
 
+    system = platform.system() or "unknown"
+    release = platform.release() or "unknown"
+
     return {
         "generated_at": datetime.now(UTC).isoformat() + "Z",
         "version": version,
         "commit_sha": commit,
         "cpu_arch": platform.machine(),
-        "provider_version": "UNKNOWN",
+        "os": f"{system} {release}",
+        "provider_version": _provider_version(),
     }
 
 
@@ -148,6 +173,7 @@ def build_json_report(
     return {
         "report": {
             **metadata,
+            "verification_kind": verification_kind(),
             "summary": summarize(results),
         },
         "checks": [result.to_dict() for result in results],
@@ -163,8 +189,10 @@ def render_markdown(
     lines.append("# Real Provider Acceptance")
     lines.append("")
     lines.append(f"- 生成时间: `{metadata['generated_at']}`")
+    lines.append(f"- 验证模式: `{verification_kind()}`")
     lines.append(f"- 版本: `{metadata['version']}`")
     lines.append(f"- commit SHA: `{metadata['commit_sha']}`")
+    lines.append(f"- 操作系统: `{metadata['os']}`")
     lines.append(f"- CPU 架构: `{metadata['cpu_arch']}`")
     lines.append(f"- provider 版本: `{metadata['provider_version']}`")
     lines.append("")

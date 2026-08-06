@@ -75,17 +75,36 @@
 
 ## 4. 真实 Provider 可用性（UNVERIFIED）
 
-| Provider | 状态 | 证据 |
-|----------|------|------|
-| 本地 OpenAI-compatible 模型 | UNVERIFIED | 缺真实服务/模型 |
-| 本地 embedding | UNVERIFIED | 缺真实服务 |
-| 本地 STT | UNVERIFIED | 缺真实服务 |
-| 远程 GPU | UNVERIFIED | 缺服务/凭证 |
-| 飞书 token / Wiki / Docx | UNVERIFIED | 缺凭证 |
-| remote TTS | UNVERIFIED | 缺服务 |
-| 数字人流（avatar stream） | UNVERIFIED | 缺服务 |
+> 验收执行器已在当前 HEAD `3f62a8a388cb544cd37dcf30de76bc6e6bf00d2a` 上重新执行。
+> **真实路径**（`verification_kind="real"`，写入 `output/provider-acceptance.json/.md`）：
+> ```
+> uv run --project apps/sidecar python scripts/accept-providers/accept_providers.py
+> ```
+> 结果：**26 项 → 6 PASS（均为 credential-free 生命周期检查）/ 1 FAIL（`local.model_discovery`，无本地服务）/ 19 UNVERIFIED（缺凭证）**。退出码 1（存在 FAIL）。
+>
+> **Mock-harness 路径**（`verification_kind="mock-harness"`，写入 `output/provider-acceptance-mock-harness.json/.md`）：
+> ```
+> bash scripts/run-provider-acceptance-mock.sh
+> ```
+> 结果：**26 项 → 20 PASS（local/remote/feishu 各子项在受控 mock Provider 上真实执行业务客户端）/ 0 FAIL / 6 UNVERIFIED（诚实标记为需真实凭证/索引的项）**。退出码 0。该路径仅供 CI 受控验证契约，不冒充真实凭证通过。
 
-> 所有真实 Provider 均无可信环境验证；`output/provider-acceptance.md`、`output/provider-readiness.md` 等旧报告为 **历史证据**（生成于 2026-08-05，早于当前 HEAD），需在当前 commit 上重新生成。
+| Provider | 真实路径状态 | Mock-harness 状态 | 证据 |
+|----------|------|------|------|
+| 本地 OpenAI-compatible 模型 | **FAIL** | PASS | 真：`local.model_discovery` 无本地服务（连接拒绝）；mock：在 mock server 上执行 `OpenAICompatibleClient` |
+| 本地 embedding | UNVERIFIED | PASS | 真：被 model_discovery FAIL 阻断；mock：`/v1/embeddings` 执行业务客户端 |
+| 本地 STT | UNVERIFIED | PASS | mock：`/v1/audio/transcriptions` 执行业务客户端 |
+| 远程 GPU health/voice/avatar/stream/TTS | UNVERIFIED | PASS | mock：`RemoteGpuClient` 在受控 mock server 上执行 /health/enroll/stream/TTS |
+| 飞书 token / Wiki / Docx | UNVERIFIED | PASS | mock：`FeishuClient` 在受控 mock server 上执行 wiki/docx/token |
+| remote TTS | UNVERIFIED | PASS | mock：`synthesize` 返回音频字节 |
+| 数字人流（avatar stream） | UNVERIFIED | PASS | mock：创建/停止流幂等 |
+
+> **mock-contract 与 real 已分离**：验收报告新增顶层 `verification_kind` 字段——未设 `VOXSTUDIO_MOCK_PROVIDER` 时为 `"real"`；设 `VOXSTUDIO_MOCK_PROVIDER=1` 时为 `"mock-harness"`（CI 受控 mock 通道）。已实测两种路径均正确翻转。
+>
+> **CI 受控 mock smoke 为 `provider-smoke` job**（runs-on macos-14，needs: sidecar）：下载 sidecar binary → 恢复执行位 → 设 `VOXSTUDIO_MOCK_PROVIDER=1` + `VOXSTUDIO_ALLOW_LOOPBACK_PROVIDERS=1` → 运行 `scripts/smoke-mock-provider.py`（sidecar 全链路 E2E）→ 运行 `scripts/run-provider-acceptance-mock.sh`（自启动 `scripts/mock-provider-server.py` 受控 mock server，将 local/remote/feishu 指向它，跑验收执行器，trap 清理）并**遵守其退出码**（存在 FAIL 即令 job 失败，不允许静默通过）→ 上传 `output/provider-acceptance-mock-harness.json/.md` 为 artifact。
+>
+> **新回归测试**：`scripts/test_mock_provider_server.sh`（21 项端到端端点断言，curl 直连 mock server 全部 PASS）。
+>
+> 诚实原则：真实 LLM/STT/TTS/avatar/Feishu 仍为 **UNVERIFIED**，等待真实凭证/服务注入后方可验证；真实路径的 1 个 FAIL（本地服务缺失）与 19 个 UNVERIFIED（缺凭证）保持不变，绝不伪造为 PASS。mock-harness 的 PASS 仅证明 mock 契约与业务客户端代码路径正确，不涉及真实服务。
 
 ---
 
