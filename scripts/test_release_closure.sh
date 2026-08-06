@@ -119,6 +119,40 @@ else
   printf 'skip - app bundle not present; cannot test spctl/signature (run build-universal first)\n'
 fi
 
+# --- 4) no-credential release path must not hard-fail -----------------------
+# `tauri.conf.json` sets `createUpdaterArtifacts: true`, which forces tauri to
+# SIGN updater artifacts. Without `TAURI_SIGNING_PRIVATE_KEY` that step
+# hard-fails, so the no-credential release path (build + honest UNVERIFIED)
+# could never run. Both build scripts must override the config to disable
+# updater-artifact creation when no signing identity is present. This is a
+# static guard ensuring the fix is not accidentally reverted.
+for build_script in build-arm64.sh build-universal.sh; do
+  script_path="${script_dir}/${build_script}"
+  if [[ ! -f "${script_path}" ]]; then
+    printf 'FAIL - %s missing\n' "${build_script}"
+    fail=$((fail + 1))
+    continue
+  fi
+  if grep -q 'createUpdaterArtifacts.*false' "${script_path}"; then
+    printf 'ok   - %s disables createUpdaterArtifacts without signing identity\n' "${build_script}"
+    pass=$((pass + 1))
+  else
+    printf 'FAIL - %s does not guard createUpdaterArtifacts (no-credential release would hard-fail)\n' "${build_script}"
+    fail=$((fail + 1))
+  fi
+done
+
+# The no-credential branch must produce a real --config file (not rely on the
+# empty-array bash 3.2 trap) so the override is actually applied.
+if grep -E 'noupdate.*\.json' "${script_dir}/build-arm64.sh" >/dev/null \
+  && grep -E 'noupdate.*\.json' "${script_dir}/build-universal.sh" >/dev/null; then
+  printf 'ok   - both build scripts write a temporary no-update config file\n'
+  pass=$((pass + 1))
+else
+  printf 'FAIL - build scripts must write a temporary no-update config file\n'
+  fail=$((fail + 1))
+fi
+
 # --- Summary ---------------------------------------------------------------
 printf '\n%d passed, %d failed\n' "${pass}" "${fail}"
 if [[ "${fail}" -gt 0 ]]; then

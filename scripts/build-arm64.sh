@@ -57,6 +57,18 @@ if [[ -n "${VOXSTUDIO_SIGNING_IDENTITY:-}" ]]; then
   python3 -c 'import json,sys; json.dump({"bundle":{"macOS":{"signingIdentity":sys.argv[1],"hardenedRuntime":True}}}, open(sys.argv[2], "w"))' \
     "${VOXSTUDIO_SIGNING_IDENTITY}" "${signing_config}"
   tauri_config_args=(--config "${signing_config}")
+else
+  # No signing credentials: `tauri.conf.json` sets `createUpdaterArtifacts:
+  # true`, which forces tauri to SIGN updater artifacts. Without a private key
+  # (`TAURI_SIGNING_PRIVATE_KEY`) that signing step hard-fails, so the
+  # no-credential release path (build + honest UNVERIFIED) could never run.
+  # Override the config to disable updater-artifact creation when there is no
+  # signing identity: the app + DMG are still built and verified honestly, and
+  # verify.json reports UNVERIFIED (signing/updater artifacts are out of scope
+  # without credentials). This is a deliberate, honest fallback — not a fake green.
+  signing_config="$(mktemp "${TMPDIR:-/tmp}/voxstudio-tauri-noupdate.XXXXXX.json")"
+  printf '%s' '{"bundle":{"createUpdaterArtifacts":false}}' > "${signing_config}"
+  tauri_config_args=(--config "${signing_config}")
 fi
 
 # Native arch build (arm64 on an arm64 host). Tauri consumes the arm64 sidecar
