@@ -1,0 +1,50 @@
+# Keep GitHub Actions and runtime dependencies pinned to trusted, current
+# versions so the CI surface does not silently drift. Dependabot opens PRs;
+# the existing branch-protection + CI gates prevent a red merge.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      github-actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+
+  - package-ecosystem: "npm"
+    directory: "/apps/desktop"
+    schedule:
+      interval: "weekly"
+    groups:
+      npm-production:
+        dependency-type: "production"
+      npm-development:
+        dependency-type: "development"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+
+  - package-ecosystem: "pip"
+    directory: "/apps/sidecar"
+    schedule:
+      interval: "weekly"
+    groups:
+      pip:
+        patterns: ["*"]
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+
+  - package-ecosystem: "cargo"
+    directory: "/apps/desktop/src-tauri"
+    schedule:
+      interval: "weekly"
+    groups:
+      cargo:
+        patterns: ["*"]
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
