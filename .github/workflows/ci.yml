@@ -163,6 +163,11 @@ jobs:
           name: sidecar-binary
           path: apps/desktop/src-tauri/binaries/
 
+      # actions/download-artifact@v4 strips the executable bit; the launcher
+      # spawns the binary directly, so restore +x before running vitest.
+      - name: Restore sidecar executable bit
+        run: chmod +x apps/desktop/src-tauri/binaries/digital-human-sidecar-*
+
       - name: TypeScript type check
         run: pnpm --dir apps/desktop exec tsc --noEmit
         timeout-minutes: 5
@@ -190,8 +195,18 @@ jobs:
     name: Rust shell
     runs-on: macos-14
     timeout-minutes: 30
+    needs: frontend
     steps:
       - uses: actions/checkout@v4
+
+      # tauri_build::build() requires apps/desktop/dist to exist (frontendDist).
+      # On a fresh checkout the dist is gitignored, so download the dist built
+      # by the `frontend` job before running any cargo command.
+      - name: Download frontend dist
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-artifacts
+          path: .
 
       - name: Set up Rust (stable + fmt + clippy)
         uses: dtolnay/rust-toolchain@stable
@@ -260,8 +275,12 @@ jobs:
         timeout-minutes: 5
 
       - name: cargo audit (Rust)
-        uses: actions-rust-lang/audit@v1
-        timeout-minutes: 10
+        # actions-rust-lang/audit@v1 depends on a Python 'requests' helper that
+        # is missing on the runner; run cargo-audit directly instead.
+        run: |
+          cargo install cargo-audit --locked
+          cargo audit --manifest-path apps/desktop/src-tauri/Cargo.toml
+        timeout-minutes: 15
 
   # ---------------------------------------------------------------------------
   # Release gate: only green when every job above passes. This job builds the
