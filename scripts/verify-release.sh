@@ -36,6 +36,9 @@
 # Exit codes:
 #   0  verification completed (the JSON `status` field has the honest result)
 #   2  usage error / required tool missing (codesign, spctl or notarytool)
+#   3  FATAL: the built .app bundle is missing. A release gate MUST NOT report
+#      success when no artifact was produced; this forces the build step to
+#      have actually run before signing/notarization can be assessed.
 #
 # The JSON status is one of:
 #   "notarized"  codesign + spctl + notarytool + stapler all passed
@@ -94,6 +97,16 @@ done
 if ! command -v xcrun >/dev/null 2>&1; then
   printf 'error: required tool not found: xcrun\n' >&2
   exit 2
+fi
+
+# FATAL if no .app was produced. A release gate that reports success while the
+# built artifact is missing is a dishonest/fake green (the build step may have
+# crashed before producing anything). Fail loudly instead so the pipeline
+# cannot claim a release that was never built.
+if [[ ! -d "${app}" ]]; then
+  printf 'error: FATAL — built .app bundle does not exist: %s\n' "${app}" >&2
+  printf 'error: release gate cannot assess a release that was not built.\n' >&2
+  exit 3
 fi
 
 # Collect a check entry: ran/passed/command/output.

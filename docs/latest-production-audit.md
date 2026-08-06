@@ -1,8 +1,9 @@
 # 最新生产基线审计（Latest Production Audit）
 
-> 生成时间：2026-08-06（Asia/Shanghai）
+> 生成时间：2026-08-06 19:xx（Asia/Shanghai）
 > 审计对象：`qq547820639/Meta-Human` 的 `main` 分支
 > 审计原则：以最新代码、最新 CI、重新执行的命令为准，不采信 README/checklist/历史报告的“已完成”声明。
+> 审计版本：本文件为**当前 commit 版本**（覆盖早前针对 `31a7be2` 的历史版本）。
 
 ---
 
@@ -10,7 +11,8 @@
 
 | 项 | 值 |
 |----|----|
-| 当前 commit SHA | `31a7be2`（`docs(release): add production readiness report + mark security closure`） |
+| 当前 commit SHA | `aa07633`（`ci: add flaky-test detection + branch protection guidance (P0)`） |
+| 完整 SHA | `aa0763375134940c6d48a211b137dc6b43740fc5` |
 | 与 origin/main | 一致（`git status` up to date） |
 | 当前版本号 | `0.1.0`（package.json / Cargo.toml / pyproject.toml / tauri.conf.json 一致） |
 | 版本标签 | 无 tag |
@@ -21,51 +23,53 @@
 
 ## 2. 最新 GitHub Actions 状态
 
-对当前 HEAD `31a7be2` 的正式 `push` 触发的 CI run (`31068034214`) 结果：
+对当前 HEAD `aa07633` 的正式 `push` 触发的 CI run (`31071581206`) 结果：
 
 | Job | 结果 | 说明 |
 |-----|------|------|
-| Dependency vulnerabilities | ✅ success | 依赖漏洞扫描通过 |
-| Python sidecar | ❌ **failure** | **Mock provider smoke 步骤失败** |
-| Frontend (TS / vitest) | ⏭️ skipped | 上游 Python job 失败导致跳过 |
-| Rust shell | ⏭️ skipped | 上游失败导致跳过 |
-| Release gate | ⏭️ skipped | 上游失败导致跳过 |
+| Python sidecar | ✅ success | ruff / mypy / pytest / coverage / build / mock smoke 全绿 |
+| Dependency vulnerabilities | ✅ success | pnpm audit / uv audit / cargo audit 通过 |
+| Flaky test detection | ✅ success | 侧边栏套件跑 2 遍，无不一致结果 |
+| Frontend (TS / vitest) | ✅ success | tsc / vitest / build 通过 |
+| Rust shell | ✅ success | fmt / clippy -D warnings / test 通过 |
+| Release gate | ✅ success | 构建产物 + provenance 生成；**诚实标记 UNVERIFIED**（无签名凭证） |
 
+> 结论：**当前 commit 所有强制 CI job 为绿色**，Release gate 实际执行并通过（在缺凭证环境下以 UNVERIFIED 形式）。
 > 注：`gh run list` 中显示为 `success` 的 `Dependabot Updates` run 是 dependabot 自动更新专用的合成 workflow，**不执行完整 CI**，不代表真实 CI 全绿。
-
-### 失败根因（已复现确认）
-
-`Mock provider smoke`（`scripts/smoke-mock-provider.py`）失败：
-
-```
-pydantic_core._pydantic_core.ValidationError: 1 validation error for RemoteGpuConfig
-base_url
-  Value error, base_url must not target a loopback host
-  [input_value='http://127.0.0.1:49212', input_type=str]
-```
-
-- 根因：`apps/sidecar/src/voxstudio_core/ssrf.py` 的 `validate_remote_base_url` 默认拒绝 loopback 目标（正确的安全默认），但 `scripts/smoke-mock-provider.py` 把 `VOXSTUDIO_REMOTE_BASE_URL` / `VOXSTUDIO_FEISHU_BASE_URL` 指向本机 `127.0.0.1` mock 服务，导致 sidecar 启动时构造 `RemoteGpuConfig` 抛 `ValidationError`，进程崩溃、`healthz` 永不为 200，smoke 返回 1。
-- 本地复现：`RemoteGpuConfig(base_url="http://127.0.0.1:12345")` → REJECTED。
-- 修复（本次已实施）：新增 `VOXSTUDIO_ALLOW_LOOPBACK_PROVIDERS` 显式开关（生产默认拒绝），mock 测试 harness 显式置 `1`；`ssrf.py` 在开关开启时允许 loopback 作为远程/飞书 Provider 目标，但 link-local/cloud-metadata/multicast 仍拒绝。已补 3 条回归测试。
+> 注：`.github#2` annotation 为 Node.js 20 弃用提示（Actions 已被强制运行在 Node 24），非漏洞、不影响门禁。
 
 ---
 
 ## 3. 质量门禁状态矩阵（重新执行结果）
 
-本地在 `31a7be2` 复跑（`apps/sidecar`）：
+`aa07633` 的强制 CI 全部绿色（run `31071581206`），本地复跑确认：
 
 | 门禁 | 命令 | 结果 |
 |------|------|------|
-| Python ruff | `uv run --project apps/sidecar ruff check apps/sidecar/src apps/sidecar/tests` | ✅ 通过（本次修改后） |
-| Python mypy | `uv run --project apps/sidecar mypy apps/sidecar/src` | ✅ 通过（58 源文件） |
-| Python pytest | `uv run --project apps/sidecar pytest apps/sidecar/tests` | ✅ 通过（521 passed） |
-| Python 覆盖率 | CI `--cov-fail-under=80` | 前次 CI 记录 ~88%，本次待复跑确认 |
-| Rust fmt / clippy / test / audit | `apps/desktop/src-tauri` | 本次 Push run 被跳过，需复跑 |
-| 前端 tsc / eslint / vitest | `apps/desktop` | 本次 Push run 被跳过，需复跑 |
-| 前端依赖漏洞 | `pnpm audit` | `Dependency vulnerabilities` job 通过（含前端+npm） |
-| Release gate | `scripts/*` | 本次被跳过，需复跑 |
+| Python ruff | CI + 本地 `uv run --project apps/sidecar ruff check apps/sidecar/src apps/sidecar/tests` | ✅ 通过 |
+| Python mypy | CI + 本地 `uv run --project apps/sidecar mypy apps/sidecar/src` | ✅ 通过 |
+| Python pytest | CI + 本地 `uv run --project apps/sidecar pytest apps/sidecar/tests` | ✅ 通过（521 passed） |
+| Python 覆盖率 | CI `--cov-fail-under=80` | ✅ 通过（实测 ~88%） |
+| Rust fmt / clippy -D warnings / test | `apps/desktop/src-tauri`（CI Rust shell job） | ✅ 通过 |
+| frontend tsc / vitest / build | `apps/desktop`（CI Frontend job） | ✅ 通过 |
+| 前端依赖漏洞 | `pnpm audit --audit-level=high` | ✅ 无已知漏洞 |
+| Python 依赖漏洞 | `uv audit --project apps/sidecar` | ✅ 无已知漏洞 |
+| Rust 依赖漏洞 | `cargo audit` | ✅ 退出码 0；**1 unsound + 17 unmaintained 告警**（见 §3.1） |
+| Release gate | `scripts/*`（CI Release gate job） | ✅ 通过（UNVERIFIED 标记） |
 
-**结论：当前 commit 的强制 CI 为红色（Python sidecar 的 mock smoke 失败）。** 修复已提交到工作区，待重建 sidecar 二进制后复跑 smoke 并推送。
+### 3.1 Rust 依赖告警明细
+
+`cargo audit`（`apps/desktop/src-tauri`，2026-08-06 执行）退出码 `0`：**无带 CVE 的可利用漏洞**。告警如下：
+
+| 严重级别 | 数量 | 编号 | 说明 |
+|----------|------|------|------|
+| unsound | 1 | RUSTSEC-2024-0429 | `glib::VariantStrIter` 的 `Iterator`/`DoubleEndedIterator` 实现存在 unsoundness |
+| unmaintained | 17 | RUSTSEC-2024-0411/0412/0413/0414/0415/0416/0417/0418/0419/0420（GTK3 绑定）、RUSTSEC-2024-0370（proc-macro-error）、RUSTSEC-2024-0429 相关、RUSTSEC-2025-0075/0080/0081/0098/0100（unic-*） | 依赖已停止维护 |
+
+- **RUSTSEC-2024-0429（glib unsound）**：`glib` 通过 `gtk` → `muda`/`tao`/`webkit2gtk` → `tauri` 依赖链引入，**仅用于 Linux 目标（GTK3 后端）**。macOS 应用运行时不链接 GTK，`VariantStrIter` 不在 macOS 代码路径上被使用。**可利用性：低**（需在 Linux 上构造特定 `GVariant` 迭代场景）。**缓解**：macOS 构建不受影响；维持 GLib 版本并由上游 tauri/gtk-rs 生态跟进修复。**到期时间**：tauri 切换到 GTK4 或上游发布安全版本后复查。
+- **unmaintained（17）**：GTK3 绑定（`gtk`/`gtk-sys`/`atk`/`gdk` 等）与 `unic-*`、`proc-macro-error` 停止维护属**信息性告警**，非 CVE。均为 Linux 构建依赖或传递依赖，不在 macOS 运行时代码路径上。升级会破坏 GTK3 兼容性，**暂不升级**，由 `cargo audit` 持续跟踪。
+
+> 结论：无高危可利用依赖漏洞；unsound 告警仅影响 Linux 目标，不构成 macOS 发布阻断。
 
 ---
 
@@ -110,8 +114,10 @@ base_url
 | 编译期更新公钥注入 | IMPLEMENTED | UNVERIFIED（无真实签名） | `updater.rs` |
 | Provider 统一验证接口 | IMPLEMENTED | UNVERIFIED | `verify.py` |
 | 侧边栏 Provider 深度验证 UI | IMPLEMENTED | UNVERIFIED | `DeepVerificationCard.tsx` |
-| Mock Provider 端到端 smoke | IMPLEMENTED | **FAILED（SSRF loopback）** | CI run 31068034214 |
-| macOS 签名/公证 | IMPLEMENTED（脚本） | UNVERIFIED / FAIL | `release-sign-notarize.md` |
+| Mock Provider 端到端 smoke | IMPLEMENTED | **VERIFIED**（CI run 31071581206 通过） | `smoke-mock-provider.py` + `test_ssrf.py` |
+| macOS 签名/公证 | IMPLEMENTED（脚本） | UNVERIFIED / FAIL | `release-sign-notarize.md`（历史） |
+| 测试抖动检测 | IMPLEMENTED | VERIFIED（CI flaky-detect job 通过） | `check-test-flakiness.sh` + `ci.yml` |
+| Release gate（缺凭证） | IMPLEMENTED | VERIFIED（诚实标记 UNVERIFIED） | `ci.yml` release-gate job |
 | 真实 Provider 验收 | MISSING | UNVERIFIED | 无真实服务 |
 | 自然对话（VAD/打断/回声） | 部分 | UNVERIFIED | 待深入 |
 | 数字人状态机与降级 | 部分 | UNVERIFIED | 待深入 |
@@ -126,13 +132,13 @@ base_url
 ## 7. 当前 P0 / P1 / P2 问题
 
 ### P0（发布阻断）
-- **P0-1**：CI `Mock provider smoke` 失败（SSRF loopback 冲突）。
+- **P0-1** ~~CI `Mock provider smoke` 失败（SSRF loopback 冲突）~~ → **已修复并验证**（run `31071581206` 全绿）。
   - 源文件：`apps/sidecar/src/voxstudio_core/ssrf.py`、`apps/sidecar/src/voxstudio_core/providers/remote_gpu.py`、`scripts/smoke-mock-provider.py`
-  - 测试：`apps/sidecar/tests/unit/test_ssrf.py`
-  - 复现命令：`uv run --project apps/sidecar python scripts/smoke-mock-provider.py`（需先建好 sidecar 二进制）
-  - 验收条件：CI Python sidecar job 全绿，mock smoke 各步骤 True。
-- **P0-2**：macOS 签名/公证/Gatekeeper 全链路未闭合（FAIL/UNVERIFIED）。
-  - 源文件：`scripts/sign-notarize.sh`、`scripts/release-closure.sh`、`scripts/release-dmg.sh`
+  - 测试：`apps/sidecar/tests/unit/test_ssrf.py`（新增 loopback opt-in 回归 3 例）
+  - 复现命令：`uv run --project apps/sidecar python scripts/smoke-mock-provider.py`
+  - 验收状态：✅ 当前 CI Python sidecar job 全绿，mock smoke 各步骤 True。
+- **P0-2**：macOS 签名/公证/Gatekeeper 全链路未闭合（UNVERIFIED）。
+  - 源文件：`scripts/sign-notarize.sh`、`scripts/release-closure.sh`、`scripts/release-dmg.sh`、`scripts/verify-release.sh`、`scripts/release-provenance.sh`
   - 复现命令：`scripts/release-closure.sh`（缺凭证则明确 FAIL/UNVERIFIED）
   - 验收条件：具备 `APPLE_TEAM_ID`/证书时实现签名→公证→stapling→spctl 通过；缺凭证时明确标记 UNVERIFIED。
 - **P0-3**：真实 Provider 验收缺失（无真实服务/凭证）。
@@ -173,7 +179,7 @@ base_url
 
 ## 9. 结论
 
-- 当前主分支强制 CI **为红色**（唯一失败：Python sidecar 的 mock smoke 因 SSRF loopback 冲突）。
-- 代码质量门禁（ruff/mypy/pytest=521/SSRF 单测=26）本地通过。
-- macOS 签名/公证、真实 Provider、真实发布/更新闭环均 UNVERIFIED，缺凭证/服务/硬件。
-- 当前状态：**Release Candidate → 未达生产可发布**，需先修复 P0-1（本次已修复待验证），再完成 P0-2/P0-3。
+- 当前主分支强制 CI **全绿**（run `31071581206`，6/6 job 通过），P0-1（mock smoke SSRF）已修复并锁定。
+- 代码质量门禁（ruff/mypy/pytest=521/coverage ~88%/Rust/frontend/依赖安全）全部通过；无高危可利用依赖漏洞（1 个 glib unsound 仅影响 Linux 目标）。
+- macOS 签名/公证、真实 Provider、真实发布/更新闭环均 **UNVERIFIED**，缺凭证/服务/硬件（见 §5、§4、§8）。
+- 当前状态：**Release Candidate → 未达生产可发布**。剩余 P0：P0-2（macOS 发布闭环）、P0-3（真实 Provider 验收）需凭证/服务方可验证，缺凭证环境下保持 UNVERIFIED。

@@ -64,7 +64,14 @@ lipo -create "${arm64_sidecar}" "${x86_64_sidecar}" -output "${sidecar_binary}"
 chmod +x "${sidecar_binary}"
 
 printf 'Building universal desktop bundle...\n'
-pnpm --dir "${desktop_project}" tauri build --target universal-apple-darwin "${tauri_config_args[@]}"
+# bash 3.2 (the default /bin/bash on macOS) treats an empty array expansion
+# `"${tauri_config_args[@]}"` as an "unbound variable" under `set -u`, aborting
+# the build. Guard on the array length so the no-signing case adds no extra args.
+if [[ "${#tauri_config_args[@]}" -eq 0 ]]; then
+  pnpm --dir "${desktop_project}" tauri build --target universal-apple-darwin
+else
+  pnpm --dir "${desktop_project}" tauri build --target universal-apple-darwin "${tauri_config_args[@]}"
+fi
 
 failures=0
 

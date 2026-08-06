@@ -61,7 +61,17 @@ fi
 
 # Native arch build (arm64 on an arm64 host). Tauri consumes the arm64 sidecar
 # from binaries/ via externalBin.
-pnpm --dir "${desktop_project}" tauri build "${tauri_config_args[@]}"
+#
+# bash 3.2 (the default /bin/bash on macOS) treats an empty array expansion
+# `"${tauri_config_args[@]}"` as an "unbound variable" under `set -u`, which
+# aborts the script before `pnpm tauri build` ever runs. Guard on the array
+# length explicitly so the no-signing case expands to NO extra args instead of
+# crashing.
+if [[ "${#tauri_config_args[@]}" -eq 0 ]]; then
+  pnpm --dir "${desktop_project}" tauri build
+else
+  pnpm --dir "${desktop_project}" tauri build "${tauri_config_args[@]}"
+fi
 
 app="${desktop_project}/src-tauri/target/release/bundle/macos/VoxStudio.app"
 dmg="$(find "${desktop_project}/src-tauri/target/release/bundle/dmg" \
