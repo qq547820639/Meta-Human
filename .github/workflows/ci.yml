@@ -42,16 +42,16 @@ jobs:
     runs-on: macos-14
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
         with:
           python-version: "3.12"
           enable-cache: true
 
       - name: Cache sidecar virtualenv
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: apps/sidecar/.venv
           key: uv-venv-${{ runner.os }}-${{ hashFiles('apps/sidecar/uv.lock') }}
@@ -106,7 +106,7 @@ jobs:
         timeout-minutes: 5
 
       - name: Upload coverage + pytest artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: sidecar-artifacts
           path: |
@@ -115,7 +115,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload sidecar binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: sidecar-binary
           path: apps/desktop/src-tauri/binaries/
@@ -140,10 +140,10 @@ jobs:
       VOXSTUDIO_MOCK_PROVIDER: "1"
       VOXSTUDIO_ALLOW_LOOPBACK_PROVIDERS: "1"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
         with:
           python-version: "3.12"
           enable-cache: true
@@ -152,10 +152,10 @@ jobs:
         run: uv sync --project apps/sidecar --frozen
         timeout-minutes: 5
 
-      # actions/download-artifact@v4 strips the executable bit; the mock smoke
+      # actions/download-artifact@v8 strips the executable bit; the mock smoke
       # spawns the sidecar binary directly, so restore +x before running it.
       - name: Download freshly built sidecar binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: sidecar-binary
           path: apps/desktop/src-tauri/binaries/
@@ -174,7 +174,7 @@ jobs:
         timeout-minutes: 10
 
       - name: Upload provider acceptance artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: provider-acceptance
           path: |
@@ -193,10 +193,10 @@ jobs:
     timeout-minutes: 20
     needs: sidecar
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
         with:
           python-version: "3.12"
           enable-cache: true
@@ -218,10 +218,10 @@ jobs:
     timeout-minutes: 30
     needs: sidecar
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up uv (for the launcher venv)
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
         with:
           python-version: "3.12"
 
@@ -230,12 +230,12 @@ jobs:
         timeout-minutes: 5
 
       - name: Set up pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           version: 11.9.0
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: pnpm
@@ -246,12 +246,12 @@ jobs:
         timeout-minutes: 10
 
       - name: Download freshly built sidecar binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: sidecar-binary
           path: apps/desktop/src-tauri/binaries/
 
-      # actions/download-artifact@v4 strips the executable bit; the launcher
+      # actions/download-artifact@v8 strips the executable bit; the launcher
       # spawns the binary directly, so restore +x before running vitest.
       - name: Restore sidecar executable bit
         run: chmod +x apps/desktop/src-tauri/binaries/digital-human-sidecar-*
@@ -269,7 +269,7 @@ jobs:
         timeout-minutes: 10
 
       - name: Upload frontend build + test artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: frontend-artifacts
           path: |
@@ -285,13 +285,13 @@ jobs:
     timeout-minutes: 30
     needs: frontend
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # tauri_build::build() requires apps/desktop/dist to exist (frontendDist).
       # On a fresh checkout the dist is gitignored, so download the dist built
       # by the `frontend` job before running any cargo command.
       - name: Download frontend dist
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: frontend-artifacts
           path: .
@@ -300,7 +300,7 @@ jobs:
       # validates that binaries/digital-human-sidecar-<triple> exists. The
       # `sidecar` job builds it; restore the executable bit that download-artifact strips.
       - name: Download sidecar binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: sidecar-binary
           path: apps/desktop/src-tauri/binaries/
@@ -314,7 +314,7 @@ jobs:
           components: rustfmt, clippy
 
       - name: Cache cargo registry / target
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -344,20 +344,20 @@ jobs:
     runs-on: macos-14
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
         with:
           python-version: "3.12"
 
       - name: Set up pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           version: 11.9.0
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: pnpm
@@ -405,7 +405,7 @@ jobs:
       APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
       APPLE_NOTARY_ISSUER: ${{ secrets.APPLE_NOTARY_ISSUER }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: All quality gates passed
         run: |
@@ -418,17 +418,17 @@ jobs:
           echo "::endgroup::"
 
       - name: Set up uv (sidecar build)
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
         with:
           python-version: "3.12"
 
       - name: Set up pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           version: 11.9.0
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: pnpm
@@ -442,7 +442,7 @@ jobs:
       # `sidecar` job produced and restore the executable bit that
       # download-artifact strips, so both build paths have what they need.
       - name: Download sidecar binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: sidecar-binary
           path: apps/desktop/src-tauri/binaries/
@@ -509,7 +509,7 @@ jobs:
         timeout-minutes: 5
 
       - name: Upload release artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-artifacts
           path: |
